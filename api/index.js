@@ -263,8 +263,4 @@ app.get('/api/dashboard/resumo', async (req, res) => {
         res.status(500).json({ error: 'Erro ao gerar dashboard' });
     }
 });
-
-// Iniciar Servidor
-app.listen(PORT, () => {
-    console.log(`🚀 Servidor Backend rodando em http://localhost:${PORT}`);
-});
+module.exports = app;
