@@ -22,5 +22,5 @@
       "dest": "frontend/$1"
     }
   ],
-  "installCommand": "npm install --prefix frontend && npm install --prefix api"
+  "installCommand": "npm install --cwd frontend && npm install --cwd api"
 }
