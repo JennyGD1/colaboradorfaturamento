@@ -22,5 +22,5 @@
       "dest": "frontend/$1"
     }
   ],
-  "installCommand": "cd frontend && npm install && cd ../api && npm install",
+  "installCommand": "cd frontend && npm install && cd ../api && npm install"
 }
