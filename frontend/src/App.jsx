@@ -43,7 +43,7 @@ const auth = app ? getAuth(app) : null;
 
 // CORREÇÃO: API_URL agora aponta para o caminho relativo '/api' no Vercel.
 // Isso só funcionará se você tiver criado o api/index.js e o vercel.json.
-const API_URL = import.meta.env.VITE_API_BASE_URL || '/api';
+const API_URL = 'https://faturamento-backend.onrender.com/api';
 const ITEMS_PER_PAGE = 20;
 
 const ADMIN_EMAILS = [
