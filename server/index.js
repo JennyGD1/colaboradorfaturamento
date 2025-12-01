@@ -263,4 +263,11 @@ app.get('/api/dashboard/resumo', async (req, res) => {
         res.status(500).json({ error: 'Erro ao gerar dashboard' });
     }
 });
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'online', 
+    timestamp: new Date().toISOString(),
+    db: db ? 'connected' : 'disconnected'
+  });
+});
 module.exports = app;
