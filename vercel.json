@@ -1,26 +1,22 @@
 {
   "builds": [
     {
-      "src": "frontend/package.json",
+      "src": "package.json",
       "use": "@vercel/static-build",
       "config": {
         "distDir": "dist"
       }
-    },
-    {
-      "src": "api/index.js",
-      "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/api/index.js"
+      "dest": "/api"
     },
     {
       "src": "/(.*)",
-      "dest": "frontend/$1"
+      "dest": "/"
     }
   ],
-  "installCommand": "cd frontend && npm install && cd ../api && npm install"
+  "installCommand": "npm install"
 }
