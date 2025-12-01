@@ -3,7 +3,8 @@ import axios from 'axios';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  signInWithPopup, 
+  signInWithRedirect, // NOVO: Usado para evitar problemas de pop-up (COOP)
+  getRedirectResult, // NOVO: Usado para capturar o resultado após o redirecionamento
   GoogleAuthProvider, 
   signOut, 
   onAuthStateChanged 
@@ -40,7 +41,9 @@ if (!isFirebaseConfigValid) {
 const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
-const API_URL = 'http://localhost:3001/api';
+// CORREÇÃO: API_URL agora aponta para o caminho relativo '/api' no Vercel.
+// Isso só funcionará se você tiver criado o api/index.js e o vercel.json.
+const API_URL = import.meta.env.VITE_API_BASE_URL || '/api';
 const ITEMS_PER_PAGE = 20;
 
 const ADMIN_EMAILS = [
@@ -55,8 +58,8 @@ const LISTA_COLABORADORES_PADRAO = [
 ];
 
 const LISTA_TRATAMENTOS = [
-    "ANESTESIOLOGIA", "ATENDIMENTO MEDICO NA REDE CREDENCIADA", "EMERGENCIA/URGENCIA",
-    "HEMODINAMICA", "INTERNAÇÃO DOMICILIAR - JUDICIAL", "INTERNAMENTO", "LEITO DIA", "ODONTO"
+  "ANESTESIOLOGIA", "ATENDIMENTO MEDICO NA REDE CREDENCIADA", "EMERGENCIA/URGENCIA",
+  "HEMODINAMICA", "INTERNAÇÃO DOMICILIAR - JUDICIAL", "INTERNAMENTO", "LEITO DIA", "ODONTO"
 ];
 
 const LISTA_STATUS = [
@@ -117,7 +120,7 @@ export default function App() {
   const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
 
-  // --- AUTH ---
+  // --- AUTH (Monitora Mudanças de Estado) ---
   useEffect(() => {
     if (!auth) {
       setFirebaseError('Configuração do Firebase não encontrada. Verifique o arquivo .env');
@@ -127,6 +130,7 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
+        // Regra de domínio de email
         if (!currentUser.email || (!currentUser.email.endsWith('@maida.health') && !currentUser.email.includes('gmail'))) {
            setErroLogin('Acesso restrito a e-mails corporativos.');
            signOut(auth);
@@ -143,7 +147,31 @@ export default function App() {
     return () => unsubscribe();
   }, []);
   
+  // --- AUTH (Captura o Resultado do Redirecionamento) ---
+  useEffect(() => {
+    if (!auth) return;
 
+    const handleRedirectResult = async () => {
+        try {
+            // Tenta obter o resultado após o redirecionamento do Google
+            const result = await getRedirectResult(auth);
+            
+            if (result) {
+                // Autenticação bem-sucedida. O onAuthStateChanged (acima) cuidará de setar o user.
+                console.log("Login bem-sucedido via Redirect.");
+            }
+        } catch (error) {
+            // Lida com erros após o redirecionamento
+            console.error("Erro no Redirect Result:", error);
+            setErroLogin(`Erro ao autenticar: ${error.message}`);
+        }
+    };
+
+    // Só chama se o auth estiver pronto.
+    if (auth) {
+        handleRedirectResult();
+    }
+  }, [auth]);
 
   // --- BUSCA LISTA PRINCIPAL (Função useCallback para otimização) ---
   const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '') => {
@@ -158,6 +186,8 @@ export default function App() {
       setCurrentPage(response.data.meta?.page || 1);
     } catch (error) {
       console.error("Erro busca:", error);
+      // Erro mais comum é ERR_NETWORK (Backend não está no ar ou URL API incorreta)
+      setErroLogin("Erro de conexão com o servidor. Verifique se a API está no ar.");
     } finally {
       setLoading(false);
     }
@@ -177,6 +207,7 @@ export default function App() {
         setDashboardData(response.data);
     } catch (error) {
         console.error("Erro dashboard:", error);
+        setErroLogin("Erro de conexão com o servidor. Verifique se a API está no ar.");
     } finally {
         setLoading(false);
     }
@@ -223,7 +254,12 @@ export default function App() {
   const handleLogin = async () => {
     if (!auth) return;
     const provider = new GoogleAuthProvider();
-    try { await signInWithPopup(auth, provider); } catch (e) { setErroLogin('Erro Login Google'); }
+    try { 
+      // *** CORREÇÃO AQUI: Usa Redirecionamento ***
+      await signInWithRedirect(auth, provider); 
+    } catch (e) { 
+      setErroLogin('Erro Login Google'); 
+    }
   };
 
   const alterarStatus = async (novoStatus) => {
@@ -266,7 +302,7 @@ export default function App() {
   };
 
 
-  if (loading && !processos.length && !dashboardData.length && !user) {
+  if (loading && processos.length === 0 && dashboardData.length === 0 && !user) {
       return (
         <div className="login-page">
           <Activity className="animate-spin" size={40} color="#0070ff" />
@@ -416,29 +452,29 @@ export default function App() {
                       {processos.map((processo) => {
                         const nomeResponsavel = processo.responsavel || processo.colaborador;
                         return (
-                        <div key={processo._id || Math.random()} className="module-card" onClick={() => { setSelectedProcesso(processo); setModalOpen(true); }}>
-                          <div className="card-header" style={{ marginBottom: '10px' }}>
-                            <span className={`status-badge ${getStatusClass(processo.status)}`}>{processo.status || 'NOVO'}</span>
-                            <span style={{ fontSize: '0.8rem', color: '#999', display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={12} /> {processo.dataRecebimento}</span>
+                          <div key={processo._id || Math.random()} className="module-card" onClick={() => { setSelectedProcesso(processo); setModalOpen(true); }}>
+                            <div className="card-header" style={{ marginBottom: '10px' }}>
+                              <span className={`status-badge ${getStatusClass(processo.status)}`}>{processo.status || 'NOVO'}</span>
+                              <span style={{ fontSize: '0.8rem', color: '#999', display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={12} /> {processo.dataRecebimento}</span>
+                            </div>
+                            {nomeResponsavel ? (
+                                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '4px 10px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '600', marginBottom: '8px', border: '1px solid #dbeafe' }}>
+                                    <User size={14} /> {nomeResponsavel}
+                                </div>
+                            ) : <div style={{ fontSize: '0.8rem', color: '#999', marginBottom: '8px', fontStyle: 'italic' }}>Sem responsável</div>}
+                            <h3 className="card-title" style={{ marginBottom: '5px', color: '#333' }}>{processo.credenciado}</h3>
+                            {processo.tratamento && (
+                                <div style={{ fontSize: '0.85rem', color: '#4b5563', marginBottom: '15px', display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
+                                    <Stethoscope size={14} style={{marginTop: '2px', flexShrink: 0, color: '#ffcc00'}} />
+                                    <span style={{fontWeight: 500, textTransform: 'uppercase'}}>{processo.tratamento}</span>
+                                </div>
+                            )}
+                            <div className="card-info" style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', borderTop: '1px solid #f0f0f0', paddingTop: '10px' }}>
+                              <div><small style={{display:'block', color:'#999'}}>Processo</small> <strong>{processo.numeroProcesso}</strong></div>
+                              <div><small style={{display:'block', color:'#999'}}>Valor</small> <strong>R$ {processo.valorCapa}</strong></div>
+                            </div>
                           </div>
-                          {nomeResponsavel ? (
-                              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '4px 10px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '600', marginBottom: '8px', border: '1px solid #dbeafe' }}>
-                                  <User size={14} /> {nomeResponsavel}
-                              </div>
-                          ) : <div style={{ fontSize: '0.8rem', color: '#999', marginBottom: '8px', fontStyle: 'italic' }}>Sem responsável</div>}
-                          <h3 className="card-title" style={{ marginBottom: '5px', color: '#333' }}>{processo.credenciado}</h3>
-                          {processo.tratamento && (
-                              <div style={{ fontSize: '0.85rem', color: '#4b5563', marginBottom: '15px', display: 'flex', alignItems: 'flex-start', gap: '6px' }}>
-                                  <Stethoscope size={14} style={{marginTop: '2px', flexShrink: 0, color: '#ffcc00'}} />
-                                  <span style={{fontWeight: 500, textTransform: 'uppercase'}}>{processo.tratamento}</span>
-                              </div>
-                          )}
-                          <div className="card-info" style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', borderTop: '1px solid #f0f0f0', paddingTop: '10px' }}>
-                            <div><small style={{display:'block', color:'#999'}}>Processo</small> <strong>{processo.numeroProcesso}</strong></div>
-                            <div><small style={{display:'block', color:'#999'}}>Valor</small> <strong>R$ {processo.valorCapa}</strong></div>
-                        </div>
-                        </div>
-                      )})}
+                        )})}
                     </div>
                     {processos.length > 0 && (
                         <div className="pagination-container">
