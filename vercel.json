@@ -4,9 +4,8 @@
       "src": "frontend/package.json",
       "use": "@vercel/static-build",
       "config": {
-        // CORREÇÃO: Informa ao construtor que o arquivo é a base
-        "base": "frontend",
         "distDir": "dist"
+        // Remova a propriedade "base" se a adicionou, pois ela pode conflitar.
       }
     },
     {
@@ -24,5 +23,6 @@
       "dest": "frontend/$1"
     }
   ],
+  // Este comando é o que garante que o NPM encontre os package.json nas subpastas
   "installCommand": "npm install --prefix frontend && npm install --prefix api"
 }
