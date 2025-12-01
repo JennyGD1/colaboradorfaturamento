@@ -5,7 +5,7 @@ const cors = require('cors');
 // --- CONFIGURAÇÕES ---
 const app = express();
 const PORT = 3001; // O backend rodará na porta 3001
-const MONGODB_URI = "mongodb+srv://jennyadmin:thYiJkdnmvcXX861478@regulacao.ollkzkp.mongodb.net/?appName=regulacao";
+const MONGODB_URI = process.env.MONGODB_URI;
 
 // Middleware
 app.use(cors()); // Permite que o React (porta diferente) acesse este servidor
