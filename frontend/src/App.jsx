@@ -41,7 +41,7 @@ const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
 // URL da API (Backend no Render)
-const API_URL = 'https://faturamento-backend.onrender.com/api';
+const API_URL = 'https://colaboradorfaturamento.onrender.com';
 const ITEMS_PER_PAGE = 20;
 
 const ADMIN_EMAILS = [
