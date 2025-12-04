@@ -15,16 +15,7 @@ const allowedOrigins = [
   'https://colaboradorfaturamento.vercel.app' // Seu frontend no Vercel
 ];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) === -1) {
-      return callback(null, true); // Em desenvolvimento/teste, permitimos. Em prod, pode restringir.
-    }
-    return callback(null, true);
-  },
-  credentials: true
-}));
+app.use(cors());
 
 app.use(express.json());
 
