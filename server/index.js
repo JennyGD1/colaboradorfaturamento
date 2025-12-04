@@ -17,6 +17,12 @@ const allowedOrigins = [
 
 app.use(cors());
 
+app.use(cors({
+    origin: ['https://colaboradorfaturamento.vercel.app', 'http://localhost:5173'], // Adicione a URL do seu front na Vercel
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    credentials: true // Se estiver usando cookies/sessão
+}));
+
 app.use(express.json());
 
 let db;
