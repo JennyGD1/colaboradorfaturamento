@@ -3,8 +3,7 @@ import axios from 'axios';
 import { initializeApp } from 'firebase/app';
 import { 
   getAuth, 
-  signInWithRedirect, // NOVO: Usado para evitar problemas de pop-up (COOP)
-  getRedirectResult, // NOVO: Usado para capturar o resultado após o redirecionamento
+  signInWithPopup, // ALTERADO: Usando Popup para maior estabilidade no Vercel
   GoogleAuthProvider, 
   signOut, 
   onAuthStateChanged 
@@ -14,7 +13,6 @@ import {
   Search, Clock, User, Save, X, ChevronDown, ChevronLeft, ChevronRight,
   Stethoscope, LayoutGrid, List, DollarSign, BarChart3
 } from 'lucide-react';
-
 import './App.css'; 
 
 // --- CONFIGURAÇÃO FIREBASE ---
@@ -27,6 +25,7 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
+
 // --- VERIFICAÇÃO E INICIALIZAÇÃO ---
 const isFirebaseConfigValid = 
   import.meta.env.VITE_FIREBASE_API_KEY &&
@@ -34,15 +33,14 @@ const isFirebaseConfigValid =
   import.meta.env.VITE_FIREBASE_PROJECT_ID;
 
 if (!isFirebaseConfigValid) {
-  console.error('❌ Configuração do Firebase incompleta. Verifique o arquivo .env');
+  console.error('❌ Configuração do Firebase incompleta. Verifique as Variáveis de Ambiente no Vercel.');
 }
 
 // Inicializa o Firebase apenas se a configuração for válida
 const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
-// CORREÇÃO: API_URL agora aponta para o caminho relativo '/api' no Vercel.
-// Isso só funcionará se você tiver criado o api/index.js e o vercel.json.
+// URL da API (Backend no Render)
 const API_URL = 'https://faturamento-backend.onrender.com/api';
 const ITEMS_PER_PAGE = 20;
 
@@ -86,14 +84,14 @@ export default function App() {
   const [filtroTratamento, setFiltroTratamento] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   
-  // Filtros de DASHBOARD (Novas regras)
+  // Filtros de DASHBOARD
   const [dashboardStartDate, setDashboardStartDate] = useState(() => {
     const today = new Date();
     // Inicia no primeiro dia do mês atual
     return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
   });
   const [dashboardEndDate, setDashboardEndDate] = useState(new Date().toISOString().split('T')[0]);
-  const [filtroFinalizado, setFiltroFinalizado] = useState('true'); // SEMPRE INICIA EM FINALIZADOS
+  const [filtroFinalizado, setFiltroFinalizado] = useState('true'); 
   
   // Paginação
   const [currentPage, setCurrentPage] = useState(1);
@@ -114,16 +112,14 @@ export default function App() {
   const [novoColaborador, setNovoColaborador] = useState(''); 
   const [erroLogin, setErroLogin] = useState('');
 
-
   // --- FUNÇÕES DE UTILIDADE ---
   const getStatusClass = (s) => s ? 'status-' + s.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, "") : 'status-default';
   const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
-
   // --- AUTH (Monitora Mudanças de Estado) ---
   useEffect(() => {
     if (!auth) {
-      setFirebaseError('Configuração do Firebase não encontrada. Verifique o arquivo .env');
+      setFirebaseError('Configuração do Firebase não encontrada. Verifique as Variáveis de Ambiente.');
       setLoading(false);
       return;
     }
@@ -132,7 +128,7 @@ export default function App() {
       if (currentUser) {
         // Regra de domínio de email
         if (!currentUser.email || (!currentUser.email.endsWith('@maida.health') && !currentUser.email.includes('gmail'))) {
-           setErroLogin('Acesso restrito a e-mails corporativos.');
+           setErroLogin('Acesso restrito a e-mails corporativos (@maida.health).');
            signOut(auth);
            return;
         }
@@ -147,33 +143,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
   
-  // --- AUTH (Captura o Resultado do Redirecionamento) ---
-  useEffect(() => {
-    if (!auth) return;
-
-    const handleRedirectResult = async () => {
-        try {
-            // Tenta obter o resultado após o redirecionamento do Google
-            const result = await getRedirectResult(auth);
-            
-            if (result) {
-                // Autenticação bem-sucedida. O onAuthStateChanged (acima) cuidará de setar o user.
-                console.log("Login bem-sucedido via Redirect.");
-            }
-        } catch (error) {
-            // Lida com erros após o redirecionamento
-            console.error("Erro no Redirect Result:", error);
-            setErroLogin(`Erro ao autenticar: ${error.message}`);
-        }
-    };
-
-    // Só chama se o auth estiver pronto.
-    if (auth) {
-        handleRedirectResult();
-    }
-  }, [auth]);
-
-  // --- BUSCA LISTA PRINCIPAL (Função useCallback para otimização) ---
+  // --- BUSCA LISTA PRINCIPAL ---
   const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '') => {
     try {
       setLoading(true);
@@ -186,14 +156,13 @@ export default function App() {
       setCurrentPage(response.data.meta?.page || 1);
     } catch (error) {
       console.error("Erro busca:", error);
-      // Erro mais comum é ERR_NETWORK (Backend não está no ar ou URL API incorreta)
       setErroLogin("Erro de conexão com o servidor. Verifique se a API está no ar.");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  // --- BUSCA DADOS DASHBOARD (Função carregarDashboard) ---
+  // --- BUSCA DADOS DASHBOARD ---
   const carregarDashboard = async () => {
     try {
         setLoading(true);
@@ -213,24 +182,19 @@ export default function App() {
     }
   };
 
-
   // --- DETALHES COLABORADOR (MODAL) ---
   const abrirDetalhesColaborador = async (colaborador) => {
     setSelectedColaborador(colaborador);
     setModalColaboradorOpen(true);
-    // Usa os processos que já vieram no dashboard
     setProcessosColaborador(colaborador.processos || []);
   };
 
-
-  // Efeito de Atualização Principal (Lista e Dashboard)
+  // Efeito de Atualização Principal
   useEffect(() => {
     if (user) {
         if (currentView === 'lista') {
-            // Chama a busca com todos os filtros de lista
             buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus);
         } else {
-            // Recarrega o dashboard sempre que um filtro de data ou status do dashboard mudar
             carregarDashboard();
         }
     }
@@ -239,26 +203,26 @@ export default function App() {
       user, currentView, dashboardStartDate, dashboardEndDate, filtroFinalizado, buscarProcessos 
   ]); 
 
-
-  // Debounce Filtro Texto (Lista)
+  // Debounce Filtro Texto
   useEffect(() => {
     if (!user || currentView !== 'lista') return;
     const t = setTimeout(() => { setCurrentPage(1); buscarProcessos(1, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }, 500);
     return () => clearTimeout(t);
   }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus]);
 
-
   // --- AÇÕES ---
   const mudarPagina = (n) => { if (n >= 1 && n <= totalPages) setCurrentPage(n); };
 
+  // LOGIN COM POPUP (CORRIGIDO PARA VERCEL)
   const handleLogin = async () => {
     if (!auth) return;
     const provider = new GoogleAuthProvider();
     try { 
-      // *** CORREÇÃO AQUI: Usa Redirecionamento ***
-      await signInWithRedirect(auth, provider); 
+      await signInWithPopup(auth, provider);
+      // onAuthStateChanged cuidará do resto
     } catch (e) { 
-      setErroLogin('Erro Login Google'); 
+      console.error("Erro Auth:", e);
+      setErroLogin('Erro Login Google: ' + e.message); 
     }
   };
 
@@ -266,20 +230,17 @@ export default function App() {
     if (!selectedProcesso || !user) return;
     const statusAntigo = selectedProcesso.status || '';
     
-    // Regra: Não permitir alteração se já estiver 'assinado e tramitado'
     if (statusAntigo === 'assinado e tramitado' && novoStatus !== 'assinado e tramitado') {
         alert("Processos com status 'assinado e tramitado' não podem ser alterados.");
         return;
     }
     
-    // Otimista
     const processoAtualizado = { ...selectedProcesso, status: novoStatus, historicoStatus: [...(selectedProcesso.historicoStatus || []), { de: statusAntigo, para: novoStatus, usuario: user.email, responsavel: user.displayName, data: new Date().toISOString() }] };
     setSelectedProcesso(processoAtualizado);
     setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
 
     try {
       await axios.put(`${API_URL}/processos/${selectedProcesso.nup}`, { novoStatus, statusAnterior: statusAntigo, usuarioEmail: user.email, usuarioNome: user.displayName });
-      // Se estiver no dashboard, recarrega para refletir a mudança no filtro
       if (currentView === 'dashboard') carregarDashboard(); 
     } catch (e) { 
         alert("Erro ao salvar."); 
@@ -301,6 +262,7 @@ export default function App() {
     } catch (e) { alert("Erro ao salvar."); buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }
   };
 
+  // --- RENDERS ---
 
   if (loading && processos.length === 0 && dashboardData.length === 0 && !user) {
       return (
@@ -314,7 +276,8 @@ export default function App() {
           )}
         </div>
       );
-    }
+  }
+
   if (!user) {
     return (
       <div className="login-page"> 
@@ -343,12 +306,12 @@ export default function App() {
             disabled={!auth}
           >
             <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" className="w-5 h-5" alt="Google" />
-            {auth ? 'Entrar com Google' : 'Configuração Incompleta'}
+            {auth ? 'Entrar com Google (Popup)' : 'Configuração Incompleta'}
           </button>
           
           {!auth && (
             <div style={{ marginTop: '15px', fontSize: '0.8rem', color: '#666' }}>
-              ⚠️ Configure as variáveis de ambiente no arquivo .env
+              ⚠️ Configure as variáveis de ambiente no arquivo .env ou no Vercel
             </div>
           )}
         </div>
@@ -367,7 +330,6 @@ export default function App() {
                 <span>Fatura<span style={{ color: '#ffcc00' }}>Maida</span></span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                {/* MENU DE NAVEGAÇÃO (SÓ ADMIN VÊ O DASHBOARD) */}
                 {isAdmin && (
                     <div className="nav-buttons">
                         <button 
@@ -398,7 +360,6 @@ export default function App() {
 
       <main className="container">
         
-        {/* --- VIEW: LISTA DE PROCESSOS (CONTEÚDO RESTAURADO) --- */}
         {currentView === 'lista' && (
             <>
                 <div className="filters-bar">
@@ -408,8 +369,6 @@ export default function App() {
                   </div>
 
                   <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                    
-                    {/* Filtro de Status */}
                     <div style={{ position: 'relative', minWidth: '180px' }}>
                         <select 
                             className="search-input" 
@@ -487,7 +446,7 @@ export default function App() {
                 )}
             </>
         )}
-        {/* --- VIEW: DASHBOARD ADMIN --- */}
+
         {currentView === 'dashboard' && isAdmin && (
             <div className="dashboard-container">
                 <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
@@ -495,7 +454,6 @@ export default function App() {
                     Produtividade da Equipe
                 </h2>
 
-                {/* BARRA DE FILTROS DO DASHBOARD (Regras Novas: Data e Finalizados) */}
                 <div className="filters-bar" style={{marginBottom: '20px', padding: '15px', borderRadius: '8px', background: '#f7f9fc'}}>
                     <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
                          <div style={{ position: 'relative', minWidth: '180px' }}>
@@ -567,7 +525,7 @@ export default function App() {
 
       </main>
 
-      {/* --- MODAL DETALHES DO PROCESSO (Edição) --- */}
+      {/* --- MODAL DETALHES DO PROCESSO --- */}
       {modalOpen && selectedProcesso && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -596,7 +554,6 @@ export default function App() {
               <div className="section-subtitle"><Activity size={16} /> Status</div>
               <div className="status-grid">
                 {LISTA_STATUS.map(status => {
-                  // Regra de Bloqueio: Se o status atual é "assinado e tramitado", bloqueia se for diferente do status atual.
                   const isFinalizado = selectedProcesso.status === 'assinado e tramitado';
                   const isCurrent = status === selectedProcesso.status;
                   const isDisabled = isFinalizado && !isCurrent; 
@@ -631,7 +588,7 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL DETALHES DO COLABORADOR (NOVO) --- */}
+      {/* --- MODAL DETALHES DO COLABORADOR --- */}
       {modalColaboradorOpen && selectedColaborador && (
         <div className="modal-overlay">
             <div className="modal-content" style={{maxWidth: '1000px'}}>
