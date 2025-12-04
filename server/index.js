@@ -9,18 +9,15 @@ const PORT = process.env.PORT || 3001;
 const MONGODB_URI = process.env.MONGODB_URI;
 
 // --- CONFIGURAÇÃO DE CORS ---
-// Permite que o seu frontend no Vercel converse com este backend
-const allowedOrigins = [
-  'http://localhost:5173',
-  'https://colaboradorfaturamento.vercel.app' // Seu frontend no Vercel
-];
-
-app.use(cors());
-
+// Configuração explícita para permitir Vercel e Localhost
 app.use(cors({
-    origin: ['https://colaboradorfaturamento.vercel.app', 'http://localhost:5173'], // Adicione a URL do seu front na Vercel
-    methods: ['GET', 'POST', 'PUT', 'DELETE'],
-    credentials: true // Se estiver usando cookies/sessão
+    origin: [
+        'http://localhost:5173',                   // Desenvolvimento local
+        'https://colaboradorfaturamento.vercel.app' // Seu frontend em produção na Vercel
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+    credentials: true
 }));
 
 app.use(express.json());
@@ -36,6 +33,8 @@ async function conectarMongo() {
         console.log('✅ API conectada ao MongoDB!');
     } catch (error) {
         console.error('❌ Falha na conexão com Mongo:', error);
+        // Opcional: Encerrar o processo se não conectar ao banco, 
+        // mas em produção o Render tenta reiniciar automaticamente.
     }
 }
 conectarMongo();
@@ -43,15 +42,17 @@ conectarMongo();
 // --- ROTAS ---
 
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'online', 
-    timestamp: new Date().toISOString(),
-    db: db ? 'connected' : 'disconnected'
-  });
+    res.json({ 
+        status: 'online', 
+        timestamp: new Date().toISOString(),
+        db: db ? 'connected' : 'disconnected'
+    });
 });
 
 app.get('/api/processos', async (req, res) => {
     try {
+        if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const search = req.query.search || '';
@@ -96,6 +97,8 @@ app.get('/api/processos', async (req, res) => {
 });
 
 app.put('/api/processos/:nup', async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+
     const { nup } = req.params;
     const { novoStatus, usuarioEmail, usuarioNome, statusAnterior } = req.body;
 
@@ -120,11 +123,14 @@ app.put('/api/processos/:nup', async (req, res) => {
         if (resultado.modifiedCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
         res.json({ success: true, message: 'Status atualizado!' });
     } catch (error) {
+        console.error("Erro atualização:", error);
         res.status(500).json({ error: 'Erro ao atualizar processo' });
     }
 });
 
 app.put('/api/processos/:nup/colaborador', async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+
     const { nup } = req.params;
     const { novoColaborador, usuarioEmail } = req.body;
 
@@ -144,12 +150,15 @@ app.put('/api/processos/:nup/colaborador', async (req, res) => {
         if (resultado.modifiedCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
         res.json({ success: true, message: 'Colaborador atualizado!' });
     } catch (error) {
+        console.error("Erro colaborador:", error);
         res.status(500).json({ error: 'Erro ao atualizar colaborador' });
     }
 });
 
 app.get('/api/dashboard/resumo', async (req, res) => {
     try {
+        if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+
         const { startDate, endDate, isFinalized } = req.query;
         const baseQuery = { responsavel: { $exists: true, $ne: "" } };
         
@@ -193,6 +202,7 @@ app.get('/api/dashboard/resumo', async (req, res) => {
         const resultado = Object.values(stats).sort((a, b) => b.total - a.total);
         res.json(resultado);
     } catch (error) {
+        console.error("Erro dashboard:", error);
         res.status(500).json({ error: 'Erro ao gerar dashboard' });
     }
 });
