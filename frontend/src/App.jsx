@@ -26,6 +26,7 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
+// --- VERIFICAÇÃO E INICIALIZAÇÃO ---
 const isFirebaseConfigValid = 
   import.meta.env.VITE_FIREBASE_API_KEY &&
   import.meta.env.VITE_FIREBASE_AUTH_DOMAIN &&
@@ -35,10 +36,12 @@ if (!isFirebaseConfigValid) {
   console.error(' Configuração do Firebase incompleta. Verifique as Variáveis de Ambiente no Vercel.');
 }
 
+// Inicializa o Firebase apenas se a configuração for válida
 const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
-const API_URL = 'https://colaboradorfaturamento.onrender.com';
+// URL da API (Backend no Render)
+const API_URL = 'https://colaboradorfaturamento.onrender.com/api';
 const ITEMS_PER_PAGE = 20;
 
 const ADMIN_EMAILS = [
@@ -109,9 +112,11 @@ export default function App() {
   const [novoColaborador, setNovoColaborador] = useState(''); 
   const [erroLogin, setErroLogin] = useState('');
 
+  // --- FUNÇÕES DE UTILIDADE ---
   const getStatusClass = (s) => s ? 'status-' + s.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, "") : 'status-default';
   const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
+  // --- AUTH (Monitora Mudanças de Estado) ---
   useEffect(() => {
     if (!auth) {
       setFirebaseError('Configuração do Firebase não encontrada. Verifique as Variáveis de Ambiente.');
@@ -121,6 +126,7 @@ export default function App() {
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
+        // Regra de domínio de email
         if (!currentUser.email || (!currentUser.email.endsWith('@maida.health') && !currentUser.email.includes('gmail'))) {
            setErroLogin('Acesso restrito a e-mails corporativos (@maida.health).');
            signOut(auth);
@@ -137,6 +143,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
   
+  // --- BUSCA LISTA PRINCIPAL ---
   const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '') => {
     try {
       setLoading(true);
@@ -180,6 +187,7 @@ export default function App() {
     setProcessosColaborador(colaborador.processos || []);
   };
 
+  // Efeito de Atualização Principal
   useEffect(() => {
     if (user) {
         if (currentView === 'lista') {
@@ -193,21 +201,21 @@ export default function App() {
       user, currentView, dashboardStartDate, dashboardEndDate, filtroFinalizado, buscarProcessos 
   ]); 
 
-  
   useEffect(() => {
     if (!user || currentView !== 'lista') return;
     const t = setTimeout(() => { setCurrentPage(1); buscarProcessos(1, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }, 500);
     return () => clearTimeout(t);
   }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus]);
 
+  // --- AÇÕES ---
   const mudarPagina = (n) => { if (n >= 1 && n <= totalPages) setCurrentPage(n); };
 
+  // LOGIN COM POPUP (CORRIGIDO PARA VERCEL)
   const handleLogin = async () => {
     if (!auth) return;
     const provider = new GoogleAuthProvider();
     try { 
       await signInWithPopup(auth, provider);
-      // onAuthStateChanged cuidará do resto
     } catch (e) { 
       console.error("Erro Auth:", e);
       setErroLogin('Erro Login Google: ' + e.message); 
@@ -250,6 +258,7 @@ export default function App() {
     } catch (e) { alert("Erro ao salvar."); buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }
   };
 
+  // --- RENDERS ---
 
   if (loading && processos.length === 0 && dashboardData.length === 0 && !user) {
       return (
@@ -633,7 +642,7 @@ export default function App() {
                 </div>
             </div>
         </div>
-    )}
+      )}
 
     </div>
   );
