@@ -4,20 +4,16 @@ const cors = require('cors');
 
 // --- CONFIGURAÇÕES ---
 const app = express();
-// O Render define a porta automaticamente na variável process.env.PORT
 const PORT = process.env.PORT || 3001; 
 const MONGODB_URI = process.env.MONGODB_URI;
 
-// --- CONFIGURAÇÃO DE CORS ---
-// Configuração explícita para permitir Vercel e Localhost
+// --- CONFIGURAÇÃO DE CORS (ATUALIZADA) ---
+// Usando origin: '*' liberamos acesso de QUALQUER lugar temporariamente.
+// Isso resolve problemas de URLs de preview da Vercel ou variações (www).
 app.use(cors({
-    origin: [
-        'http://localhost:5173',                   // Desenvolvimento local
-        'https://colaboradorfaturamento.vercel.app' // Seu frontend em produção na Vercel
-    ],
+    origin: '*', 
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-    credentials: true
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json());
@@ -33,8 +29,6 @@ async function conectarMongo() {
         console.log('✅ API conectada ao MongoDB!');
     } catch (error) {
         console.error('❌ Falha na conexão com Mongo:', error);
-        // Opcional: Encerrar o processo se não conectar ao banco, 
-        // mas em produção o Render tenta reiniciar automaticamente.
     }
 }
 conectarMongo();
@@ -51,7 +45,7 @@ app.get('/api/health', (req, res) => {
 
 app.get('/api/processos', async (req, res) => {
     try {
-        if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+        if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
 
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
@@ -97,7 +91,7 @@ app.get('/api/processos', async (req, res) => {
 });
 
 app.put('/api/processos/:nup', async (req, res) => {
-    if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+    if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
 
     const { nup } = req.params;
     const { novoStatus, usuarioEmail, usuarioNome, statusAnterior } = req.body;
@@ -129,7 +123,7 @@ app.put('/api/processos/:nup', async (req, res) => {
 });
 
 app.put('/api/processos/:nup/colaborador', async (req, res) => {
-    if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+    if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
 
     const { nup } = req.params;
     const { novoColaborador, usuarioEmail } = req.body;
@@ -157,7 +151,7 @@ app.put('/api/processos/:nup/colaborador', async (req, res) => {
 
 app.get('/api/dashboard/resumo', async (req, res) => {
     try {
-        if (!db) return res.status(503).json({ error: 'Banco de dados não inicializado' });
+        if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
 
         const { startDate, endDate, isFinalized } = req.query;
         const baseQuery = { responsavel: { $exists: true, $ne: "" } };
@@ -207,7 +201,6 @@ app.get('/api/dashboard/resumo', async (req, res) => {
     }
 });
 
-// O Render exige que escutemos em '0.0.0.0'
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`✅ Servidor rodando na porta ${PORT}`);
 });
