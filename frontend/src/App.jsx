@@ -15,7 +15,6 @@ import {
 } from 'lucide-react';
 import './App.css'; 
 
-// --- CONFIGURAÇÃO FIREBASE ---
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
@@ -26,21 +25,18 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID
 };
 
-// --- VERIFICAÇÃO E INICIALIZAÇÃO ---
 const isFirebaseConfigValid = 
   import.meta.env.VITE_FIREBASE_API_KEY &&
   import.meta.env.VITE_FIREBASE_AUTH_DOMAIN &&
   import.meta.env.VITE_FIREBASE_PROJECT_ID;
 
 if (!isFirebaseConfigValid) {
-  console.error(' Configuração do Firebase incompleta. Verifique as Variáveis de Ambiente no Vercel.');
+  console.error('Configuração do Firebase incompleta.');
 }
 
-// Inicializa o Firebase apenas se a configuração for válida
 const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
-// URL da API (Backend no Render)
 const API_URL = 'https://colaboradorfaturamento.onrender.com/api';
 const ITEMS_PER_PAGE = 20;
 
@@ -71,40 +67,32 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [firebaseError, setFirebaseError] = useState('');
   
-  // Controle de Visualização
   const [currentView, setCurrentView] = useState('lista');
 
-  // Dados
   const [processos, setProcessos] = useState([]);
   const [dashboardData, setDashboardData] = useState([]);
 
-  // Filtros de Lista
   const [filtro, setFiltro] = useState('');
   const [filtroResponsavel, setFiltroResponsavel] = useState(''); 
   const [filtroTratamento, setFiltroTratamento] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   
-  // Filtros de DASHBOARD
   const [dashboardStartDate, setDashboardStartDate] = useState(() => {
     const today = new Date();
-    // Inicia no primeiro dia do mês atual
     return new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
   });
   const [dashboardEndDate, setDashboardEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [filtroFinalizado, setFiltroFinalizado] = useState('true'); 
   
-  // Paginação
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRegistros, setTotalRegistros] = useState(0);
 
   const [opcoesColaboradores, setOpcoesColaboradores] = useState(LISTA_COLABORADORES_PADRAO);
 
-  // Modais
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedProcesso, setSelectedProcesso] = useState(null);
   
-  // Modal de Detalhes do Colaborador (Dashboard)
   const [modalColaboradorOpen, setModalColaboradorOpen] = useState(false);
   const [selectedColaborador, setSelectedColaborador] = useState(null);
   const [processosColaborador, setProcessosColaborador] = useState([]);
@@ -112,21 +100,22 @@ export default function App() {
   const [novoColaborador, setNovoColaborador] = useState(''); 
   const [erroLogin, setErroLogin] = useState('');
 
-  // --- FUNÇÕES DE UTILIDADE ---
+  const [inputValorCapa, setInputValorCapa] = useState('');
+  const [inputValorGlosa, setInputValorGlosa] = useState('');
+  const [inputValorLiberado, setInputValorLiberado] = useState('');
+
   const getStatusClass = (s) => s ? 'status-' + s.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, "") : 'status-default';
   const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
-  // --- AUTH (Monitora Mudanças de Estado) ---
   useEffect(() => {
     if (!auth) {
-      setFirebaseError('Configuração do Firebase não encontrada. Verifique as Variáveis de Ambiente.');
+      setFirebaseError('Configuração do Firebase não encontrada.');
       setLoading(false);
       return;
     }
 
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       if (currentUser) {
-        // Regra de domínio de email
         if (!currentUser.email || (!currentUser.email.endsWith('@maida.health') && !currentUser.email.includes('gmail'))) {
            setErroLogin('Acesso restrito a e-mails corporativos (@maida.health).');
            signOut(auth);
@@ -142,8 +131,15 @@ export default function App() {
     
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    if (selectedProcesso) {
+        setInputValorCapa(selectedProcesso.valorCapa || '');
+        setInputValorGlosa(selectedProcesso.valorGlosa || '');
+        setInputValorLiberado(selectedProcesso.valorLiberado || '');
+    }
+  }, [selectedProcesso]);
   
-  // --- BUSCA LISTA PRINCIPAL ---
   const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '') => {
     try {
       setLoading(true);
@@ -156,7 +152,7 @@ export default function App() {
       setCurrentPage(response.data.meta?.page || 1);
     } catch (error) {
       console.error("Erro busca:", error);
-      setErroLogin("Erro de conexão com o servidor. Verifique se a API está no ar.");
+      setErroLogin("Erro de conexão com o servidor.");
     } finally {
       setLoading(false);
     }
@@ -175,7 +171,7 @@ export default function App() {
         setDashboardData(response.data);
     } catch (error) {
         console.error("Erro dashboard:", error);
-        setErroLogin("Erro de conexão com o servidor. Verifique se a API está no ar.");
+        setErroLogin("Erro de conexão com o servidor.");
     } finally {
         setLoading(false);
     }
@@ -187,7 +183,6 @@ export default function App() {
     setProcessosColaborador(colaborador.processos || []);
   };
 
-  // Efeito de Atualização Principal
   useEffect(() => {
     if (user) {
         if (currentView === 'lista') {
@@ -207,10 +202,8 @@ export default function App() {
     return () => clearTimeout(t);
   }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus]);
 
-  // --- AÇÕES ---
   const mudarPagina = (n) => { if (n >= 1 && n <= totalPages) setCurrentPage(n); };
 
-  // LOGIN COM POPUP (CORRIGIDO PARA VERCEL)
   const handleLogin = async () => {
     if (!auth) return;
     const provider = new GoogleAuthProvider();
@@ -230,13 +223,42 @@ export default function App() {
         alert("Processos com status 'assinado e tramitado' não podem ser alterados.");
         return;
     }
+
+    let payloadFinanceiro = {};
+
+    if (novoStatus === 'assinado e tramitado') {
+        if (!inputValorCapa || !inputValorLiberado) {
+            alert("Para finalizar, é obrigatório preencher 'Valor Capa' e 'Valor Liberado'.");
+            return;
+        }
+        payloadFinanceiro = {
+            valorCapa: inputValorCapa,
+            valorGlosa: inputValorGlosa || 0,
+            valorLiberado: inputValorLiberado
+        };
+    }
     
-    const processoAtualizado = { ...selectedProcesso, status: novoStatus, historicoStatus: [...(selectedProcesso.historicoStatus || []), { de: statusAntigo, para: novoStatus, usuario: user.email, responsavel: user.displayName, data: new Date().toISOString() }] };
+    const processoAtualizado = { 
+        ...selectedProcesso, 
+        status: novoStatus, 
+        ...payloadFinanceiro,
+        historicoStatus: [
+            ...(selectedProcesso.historicoStatus || []), 
+            { de: statusAntigo, para: novoStatus, usuario: user.email, responsavel: user.displayName, data: new Date().toISOString() }
+        ] 
+    };
+    
     setSelectedProcesso(processoAtualizado);
     setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
 
     try {
-      await axios.put(`${API_URL}/processos/${selectedProcesso.nup}`, { novoStatus, statusAnterior: statusAntigo, usuarioEmail: user.email, usuarioNome: user.displayName });
+      await axios.put(`${API_URL}/processos/${selectedProcesso.nup}`, { 
+          novoStatus, 
+          statusAnterior: statusAntigo, 
+          usuarioEmail: user.email, 
+          usuarioNome: user.displayName,
+          ...payloadFinanceiro
+      });
       if (currentView === 'dashboard') carregarDashboard(); 
     } catch (e) { 
         alert("Erro ao salvar."); 
@@ -257,8 +279,6 @@ export default function App() {
         alert("Colaborador atualizado!");
     } catch (e) { alert("Erro ao salvar."); buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }
   };
-
-  // --- RENDERS ---
 
   if (loading && processos.length === 0 && dashboardData.length === 0 && !user) {
       return (
@@ -521,7 +541,6 @@ export default function App() {
 
       </main>
 
-      {/* --- MODAL DETALHES DO PROCESSO --- */}
       {modalOpen && selectedProcesso && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -547,6 +566,51 @@ export default function App() {
                   <small style={{color: '#999', display: 'block', marginBottom: '4px'}}>PROCEDIMENTO</small>
                   <div style={{fontWeight: 600, color: '#374151'}}>{selectedProcesso.tratamento || 'Não informado'}</div>
               </div>
+
+              <div className="financial-inputs" style={{ marginBottom: '20px', padding: '15px', background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: '8px' }}>
+                  <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <DollarSign size={16}/> Valores do Fechamento
+                  </h4>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
+                      <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#666' }}>V. Capa *</label>
+                          <input 
+                              type="number" 
+                              className="input-admin"
+                              style={{ width: '100%', padding: '6px' }}
+                              value={inputValorCapa}
+                              onChange={(e) => setInputValorCapa(e.target.value)}
+                              disabled={selectedProcesso.status === 'assinado e tramitado'}
+                              placeholder="0.00"
+                          />
+                      </div>
+                      <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#666' }}>V. Glosa</label>
+                          <input 
+                              type="number" 
+                              className="input-admin"
+                              style={{ width: '100%', padding: '6px' }}
+                              value={inputValorGlosa}
+                              onChange={(e) => setInputValorGlosa(e.target.value)}
+                              disabled={selectedProcesso.status === 'assinado e tramitado'}
+                              placeholder="0.00"
+                          />
+                      </div>
+                      <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#666' }}>V. Liberado *</label>
+                          <input 
+                              type="number" 
+                              className="input-admin"
+                              style={{ width: '100%', padding: '6px' }}
+                              value={inputValorLiberado}
+                              onChange={(e) => setInputValorLiberado(e.target.value)}
+                              disabled={selectedProcesso.status === 'assinado e tramitado'}
+                              placeholder="0.00"
+                          />
+                      </div>
+                  </div>
+              </div>
+
               <div className="section-subtitle"><Activity size={16} /> Status</div>
               <div className="status-grid">
                 {LISTA_STATUS.map(status => {
@@ -584,7 +648,6 @@ export default function App() {
         </div>
       )}
 
-      {/* --- MODAL DETALHES DO COLABORADOR --- */}
       {modalColaboradorOpen && selectedColaborador && (
         <div className="modal-overlay">
             <div className="modal-content" style={{maxWidth: '1000px'}}>
