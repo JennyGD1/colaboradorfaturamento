@@ -33,7 +33,6 @@ async function conectarMongo() {
 }
 conectarMongo();
 
-// --- ROTAS ---
 
 app.get('/api/health', (req, res) => {
     res.json({ 
@@ -43,50 +42,53 @@ app.get('/api/health', (req, res) => {
     });
 });
 
-app.get('/api/processos', async (req, res) => {
+app.put('/api/processos/:nup', async (req, res) => {
+    if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
+
+    const { nup } = req.params;
+    const { 
+        novoStatus, 
+        usuarioEmail, 
+        usuarioNome, 
+        statusAnterior,
+        valorCapa,     
+        valorGlosa,    
+        valorLiberado  
+    } = req.body;
+
+    if (!novoStatus || !usuarioEmail) return res.status(400).json({ error: 'Dados incompletos' });
+
     try {
-        if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
+        const updateFields = {
+            status: novoStatus,
+            ultimaAtualizacao: new Date()
+        };
 
-        const page = parseInt(req.query.page) || 1;
-        const limit = parseInt(req.query.limit) || 20;
-        const search = req.query.search || '';
-        const status = req.query.status || ''; 
-        const responsavel = req.query.responsavel || '';
-        const tratamento = req.query.tratamento || '';
 
-        const skip = (page - 1) * limit;
-        let query = {};
+        if (valorCapa !== undefined && valorCapa !== null) updateFields.valorCapa = Number(valorCapa);
+        if (valorGlosa !== undefined && valorGlosa !== null) updateFields.valorGlosa = Number(valorGlosa);
+        if (valorLiberado !== undefined && valorLiberado !== null) updateFields.valorLiberado = Number(valorLiberado);
 
-        if (search) {
-            query.$or = [
-                { numeroProcesso: { $regex: search, $options: 'i' } },
-                { credenciado: { $regex: search, $options: 'i' } }
-            ];
-        }
-        if (status) query.status = status;
-        if (responsavel) query.responsavel = responsavel;
-        if (tratamento) query.tratamento = { $regex: tratamento, $options: 'i' };
-
-        const totalRegistros = await db.collection('processos').countDocuments(query);
-        const processos = await db.collection('processos')
-            .find(query)
-            .sort({ dataImportacao: -1 })
-            .skip(skip)
-            .limit(limit)
-            .toArray();
-
-        res.json({
-            data: processos,
-            meta: {
-                total: totalRegistros,
-                page: page,
-                limit: limit,
-                totalPages: Math.ceil(totalRegistros / limit)
+        const resultado = await db.collection('processos').updateOne(
+            { nup: nup },
+            {
+                $set: updateFields,
+                $push: {
+                    historicoStatus: {
+                        de: statusAnterior || 'Sem status',
+                        para: novoStatus,
+                        usuario: usuarioEmail,
+                        responsavel: usuarioNome,
+                        data: new Date()
+                    }
+                }
             }
-        });
+        );
+        if (resultado.modifiedCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
+        res.json({ success: true, message: 'Status e valores atualizados!' });
     } catch (error) {
-        console.error("Erro na busca:", error);
-        res.status(500).json({ error: 'Erro interno ao buscar processos' });
+        console.error("Erro atualização:", error);
+        res.status(500).json({ error: 'Erro ao atualizar processo' });
     }
 });
 
