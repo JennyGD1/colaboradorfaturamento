@@ -179,9 +179,9 @@ app.get('/api/dashboard/resumo', async (req, res) => {
             baseQuery.dataRegulacao = { $gte: startDate, $lte: endDate };
         }
         if (isFinalized === 'true') {
-            baseQuery.status = 'assinado e tramitado';
+            baseQuery.status = 'Assinado e Tramitado';
         } else if (isFinalized === 'false') {
-             baseQuery.status = { $ne: 'assinado e tramitado' };
+            baseQuery.status = { $ne: 'Assinado e Tramitado' };
         }
 
         const processos = await db.collection('processos').find(baseQuery).project({ 
