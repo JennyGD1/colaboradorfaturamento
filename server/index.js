@@ -61,7 +61,15 @@ app.get('/api/processos', async (req, res) => {
                 { credenciado: { $regex: search, $options: 'i' } }
             ];
         }
-        if (status) query.status = status;
+        if (status) {
+            query.status = {
+                $regex: status
+                    .normalize("NFD")
+                    .replace(/[\u0300-\u036f]/g, "")
+                    .replace(/\s+/g, "\\s*"),      
+                $options: "i"
+            };
+        }
         if (responsavel) query.responsavel = responsavel;
         if (tratamento) query.tratamento = { $regex: tratamento, $options: 'i' };
 
