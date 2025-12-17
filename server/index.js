@@ -62,13 +62,7 @@ app.get('/api/processos', async (req, res) => {
             ];
         }
         if (status) {
-            query.status = {
-                $regex: status
-                    .normalize("NFD")
-                    .replace(/[\u0300-\u036f]/g, "")
-                    .replace(/\s+/g, "\\s*"),      
-                $options: "i"
-            };
+            query.status = status;
         }
         if (responsavel) query.responsavel = responsavel;
         if (tratamento) query.tratamento = { $regex: tratamento, $options: 'i' };
