@@ -57,10 +57,15 @@ const LISTA_TRATAMENTOS = [
 ];
 
 const LISTA_STATUS = [
-  'pendente auditoria', 'para análise', 'em análise', 'Assinado analista',
-  'assinado gestor', 'assinado e tramitado', 'auditoria odonto',
-  'pendente prestador', 'pendente cliente', 'arquivado'
+  'Sem Status',
+  'Para Análise',
+  'Em Análise',
+  'Analisado Contas Médicas',
+  'Digitado/Modificado',
+  'Agrupado para Pagamento',
+  'Assinado e Tramitado'
 ];
+
 
 export default function App() {
   const [user, setUser] = useState(null);
