@@ -47,7 +47,6 @@ const ADMIN_EMAILS = [
   'lucas@maida.health'
 ];
 
-
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -298,6 +297,30 @@ export default function App() {
         await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { novoColaborador, usuarioEmail: user.email });
         alert("Colaborador atualizado!");
     } catch (e) { alert("Erro ao salvar."); buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }
+  };
+
+  const assumirProcesso = async () => {
+    if (!selectedProcesso || !user) return;
+    const nomeUsuario = user.displayName || user.email; 
+    
+    const processoAtualizado = { ...selectedProcesso, responsavel: nomeUsuario };
+    setSelectedProcesso(processoAtualizado);
+    setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
+
+    if (!listaResponsaveis.includes(nomeUsuario)) {
+        setListaResponsaveis(p => [...p, nomeUsuario].sort());
+    }
+
+    try {
+        // Envia para o backend
+        await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { 
+            novoColaborador: nomeUsuario, 
+            usuarioEmail: user.email 
+        });
+    } catch (e) { 
+        alert("Erro ao salvar."); 
+        buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); 
+    }
   };
 
   if (loading && processos.length === 0 && dashboardData.length === 0 && !user) {
@@ -582,20 +605,52 @@ export default function App() {
               <button onClick={() => setModalOpen(false)} className="btn-close"><X size={24} /></button>
             </div>
             <div className="modal-body">
-              {isAdmin && (
-                <div className="admin-section">
-                    <div className="admin-title"><User size={16} /> Responsável (Admin)</div>
-                    <div className="admin-controls">
-                        <div style={{flex: 1, position: 'relative'}}>
-                            {/* LISTA DINÂMICA DE COLABORADORES NO MODAL */}
-                            <input list="lista-colaboradores" type="text" className="input-admin" placeholder="Selecione..." value={novoColaborador} onChange={(e) => setNovoColaborador(e.target.value)} style={{ width: '100%' }} />
-                            <ChevronDown size={14} style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#999'}} />
-                            <datalist id="lista-colaboradores">{opcoesColaboradores.map((nome, index) => <option key={index} value={nome} />)}</datalist>
-                        </div>
-                        <button onClick={salvarColaborador} className="btn-save"><Save size={16} /> Salvar</button>
-                    </div>
-                </div>
-              )}
+
+              {/* --- BLOCO DE RESPONSÁVEL (ALTERADO) --- */}
+              <div style={{marginBottom: '20px', padding: '15px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd'}}>
+                  <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: '#0369a1', fontWeight: 600}}>
+                      <User size={18} /> Responsável pelo Processo
+                  </div>
+
+                  {/* CENÁRIO 1: Processo SEM dono -> Botão para assumir (Todos veem) */}
+                  {(!selectedProcesso.responsavel || selectedProcesso.responsavel === '') ? (
+                      <button 
+                          onClick={assumirProcesso}
+                          className="btn-save"
+                          style={{
+                              width: '100%', 
+                              justifyContent: 'center', 
+                              backgroundColor: '#0284c7', 
+                              color: 'white',
+                              padding: '10px',
+                              fontSize: '1rem'
+                          }}
+                      >
+                          ✋ Assumir este Processo
+                      </button>
+                  ) : (
+                      <div style={{fontSize: '1.1rem', fontWeight: 'bold', color: '#333', padding: '5px 0'}}>
+                          {selectedProcesso.responsavel}
+                      </div>
+                  )}
+
+                  {/* CENÁRIO 3: Área Admin -> Permite TROCAR o responsável se necessário */}
+                  {isAdmin && (
+                      <div style={{marginTop: '15px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1'}}>
+                          <small style={{display: 'block', marginBottom: '5px', color: '#64748b'}}>Admin: Trocar responsável</small>
+                          <div className="admin-controls">
+                              <div style={{flex: 1, position: 'relative'}}>
+                                  <input list="lista-colaboradores" type="text" className="input-admin" placeholder="Selecione..." value={novoColaborador} onChange={(e) => setNovoColaborador(e.target.value)} style={{ width: '100%' }} />
+                                  <ChevronDown size={14} style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#999'}} />
+                                  <datalist id="lista-colaboradores">{opcoesColaboradores.map((nome, index) => <option key={index} value={nome} />)}</datalist>
+                              </div>
+                              <button onClick={salvarColaborador} className="btn-save" style={{backgroundColor: '#64748b'}}><Save size={16} /> Salvar</button>
+                          </div>
+                      </div>
+                  )}
+              </div>
+              {/* --- FIM DO BLOCO RESPONSÁVEL --- */}
+
               <div style={{marginBottom: '20px', padding: '10px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #eee'}}>
                   <small style={{color: '#999', display: 'block', marginBottom: '4px'}}>PROCEDIMENTO</small>
                   <div style={{fontWeight: 600, color: '#374151'}}>{selectedProcesso.tratamento || 'Não informado'}</div>
