@@ -11,7 +11,8 @@ import {
 import { 
   Activity, LogOut, FileText, History, CheckCircle, AlertCircle,
   Search, Clock, User, Save, X, ChevronDown, ChevronLeft, ChevronRight,
-  Stethoscope, LayoutGrid, List, DollarSign, BarChart3
+  Stethoscope, LayoutGrid, List, DollarSign, BarChart3,
+  Calendar 
 } from 'lucide-react';
 import './App.css'; 
 
@@ -37,33 +38,13 @@ if (!isFirebaseConfigValid) {
 const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
-const API_URL = 'https://colaboradorfaturamento.onrender.com/api';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const ITEMS_PER_PAGE = 20;
 
 const ADMIN_EMAILS = [
   'rossyneide@maida.health',
   'jennifer.batista@maida.health',
   'lucas@maida.health'
-];
-
-const LISTA_COLABORADORES_PADRAO = [
-  'ANA', 'Andre Falcao', 'Andressa', 'Deise', 'Eduarda', 
-  'Giselly', 'Luziane', 'Marcia', 'Naila', 'Tamera', 'Paulo', 'Karen'
-];
-
-const LISTA_TRATAMENTOS = [
-  "ANESTESIOLOGIA", "ATENDIMENTO MEDICO NA REDE CREDENCIADA", "EMERGENCIA/URGENCIA",
-  "HEMODINAMICA", "INTERNAÇÃO DOMICILIAR - JUDICIAL", "INTERNAMENTO", "LEITO DIA", "ODONTO"
-];
-
-const LISTA_STATUS = [
-  'Sem Status',
-  'Para Análise',
-  'Em Análise',
-  'Analisado Contas Médicas',
-  'Digitado/Modificado',
-  'Agrupado para Pagamento',
-  'Assinado e Tramitado'
 ];
 
 
@@ -77,10 +58,15 @@ export default function App() {
   const [processos, setProcessos] = useState([]);
   const [dashboardData, setDashboardData] = useState([]);
 
+  const [listaResponsaveis, setListaResponsaveis] = useState([]);
+  const [listaTratamentos, setListaTratamentos] = useState([]);
+  const [listaStatus, setListaStatus] = useState([]);
+  
   const [filtro, setFiltro] = useState('');
   const [filtroResponsavel, setFiltroResponsavel] = useState(''); 
   const [filtroTratamento, setFiltroTratamento] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [filtroProducao, setFiltroProducao] = useState('');
   
   const [dashboardStartDate, setDashboardStartDate] = useState(() => {
     const today = new Date();
@@ -93,7 +79,7 @@ export default function App() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalRegistros, setTotalRegistros] = useState(0);
 
-  const [opcoesColaboradores, setOpcoesColaboradores] = useState(LISTA_COLABORADORES_PADRAO);
+  const [opcoesColaboradores, setOpcoesColaboradores] = useState([]); 
 
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedProcesso, setSelectedProcesso] = useState(null);
@@ -112,6 +98,18 @@ export default function App() {
   const getStatusClass = (s) => s ? 'status-' + s.toLowerCase().replace(/ /g, '-').normalize('NFD').replace(/[\u0300-\u036f]/g, "") : 'status-default';
   const formatCurrency = (val) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val);
 
+  const carregarFiltrosDoBanco = useCallback(async () => {
+    try {
+        const response = await axios.get(`${API_URL}/filtros`);
+        setListaResponsaveis(response.data.responsaveis || []);
+        setListaTratamentos(response.data.tratamentos || []);
+        setListaStatus(response.data.status || []);
+        setOpcoesColaboradores(response.data.responsaveis || []);
+    } catch (error) {
+        console.error("Erro ao carregar filtros dinâmicos:", error);
+    }
+  }, []);
+
   useEffect(() => {
     if (!auth) {
       setFirebaseError('Configuração do Firebase não encontrada.');
@@ -127,6 +125,7 @@ export default function App() {
            return;
         }
         setUser(currentUser);
+        carregarFiltrosDoBanco();
       } else {
         setUser(null); 
         setProcessos([]);
@@ -135,7 +134,7 @@ export default function App() {
     });
     
     return () => unsubscribe();
-  }, []);
+  }, [carregarFiltrosDoBanco]);
 
   useEffect(() => {
     if (selectedProcesso) {
@@ -145,11 +144,11 @@ export default function App() {
     }
   }, [selectedProcesso]);
   
-  const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '') => {
+  const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '', prodTerm = '') => {
     try {
       setLoading(true);
       const response = await axios.get(`${API_URL}/processos`, {
-        params: { page, limit: ITEMS_PER_PAGE, search: searchTerm, responsavel: respTerm, tratamento: tratTerm, status: statusTerm }
+        params: { page, limit: ITEMS_PER_PAGE, search: searchTerm, responsavel: respTerm, tratamento: tratTerm, status: statusTerm, producao: prodTerm }
       });
       setProcessos(response.data.data || []);
       setTotalPages(response.data.meta?.totalPages || 1);
@@ -191,21 +190,33 @@ export default function App() {
   useEffect(() => {
     if (user) {
         if (currentView === 'lista') {
-            buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus);
+            buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao);
         } else {
             carregarDashboard();
         }
     }
   }, [
-      currentPage, filtroResponsavel, filtroTratamento, filtroStatus, 
-      user, currentView, dashboardStartDate, dashboardEndDate, filtroFinalizado, buscarProcessos 
-  ]); 
-
+      currentPage, 
+      filtroResponsavel, 
+      filtroTratamento, 
+      filtroStatus, 
+      filtroProducao,
+      user, 
+      currentView, 
+      dashboardStartDate, 
+      dashboardEndDate, 
+      filtroFinalizado, 
+      buscarProcessos 
+  ]);
+  
   useEffect(() => {
     if (!user || currentView !== 'lista') return;
-    const t = setTimeout(() => { setCurrentPage(1); buscarProcessos(1, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }, 500);
+    const t = setTimeout(() => { 
+        setCurrentPage(1); 
+        buscarProcessos(1, filtro, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao); 
+    }, 500);
     return () => clearTimeout(t);
-  }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus]);
+  }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao]);
 
   const mudarPagina = (n) => { if (n >= 1 && n <= totalPages) setCurrentPage(n); };
 
@@ -264,6 +275,7 @@ export default function App() {
           usuarioNome: user.displayName,
           ...payloadFinanceiro
       });
+      carregarFiltrosDoBanco();
       if (currentView === 'dashboard') carregarDashboard(); 
     } catch (e) { 
         alert("Erro ao salvar."); 
@@ -273,7 +285,10 @@ export default function App() {
 
   const salvarColaborador = async () => {
     if (!selectedProcesso || !user) return;
-    if (novoColaborador && !opcoesColaboradores.includes(novoColaborador)) setOpcoesColaboradores(p => [...p, novoColaborador].sort());
+    if (novoColaborador && !opcoesColaboradores.includes(novoColaborador)) {
+        setOpcoesColaboradores(p => [...p, novoColaborador].sort());
+        setListaResponsaveis(p => [...p, novoColaborador].sort());
+    }
     
     const processoAtualizado = { ...selectedProcesso, responsavel: novoColaborador };
     setSelectedProcesso(processoAtualizado);
@@ -384,6 +399,22 @@ export default function App() {
         {currentView === 'lista' && (
             <>
                 <div className="filters-bar">
+                  
+                  {/* INPUT DE DATA (MÊS/ANO) */}
+                  <div style={{ position: 'relative', minWidth: '150px' }}>
+                    <input 
+                        type="month" 
+                        className="search-input" 
+                        value={filtroProducao ? filtroProducao.split('/').reverse().join('-') : ''} 
+                        onChange={(e) => {
+                             const val = e.target.value;
+                             const newVal = val ? val.split('-').reverse().join('/') : '';
+                             setFiltroProducao(newVal);
+                        }} 
+                        style={{ width: '100%' }} 
+                    />
+                  </div>
+
                   <div style={{ flex: 1 }}>
                     <h2 style={{ fontSize: '1.5rem', marginBottom: '5px' }}>Processos</h2>
                     <p style={{ color: '#666' }}>Total: {totalRegistros} registros</p>
@@ -398,24 +429,21 @@ export default function App() {
                             style={{width: '100%'}}
                         >
                             <option value="">Status: Todos</option>
-                            {LISTA_STATUS.map(status => <option key={status} value={status}>{status}</option>)}
+                            {listaStatus.map(status => <option key={status} value={status}>{status}</option>)}
                         </select>
-                        <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '14px', color: '#999', pointerEvents: 'none' }} />
                     </div>
 
                     <div style={{ position: 'relative', minWidth: '180px' }}>
                         <select className="search-input" value={filtroResponsavel} onChange={(e) => { setCurrentPage(1); setFiltroResponsavel(e.target.value); }} style={{width: '100%'}}>
                             <option value="">Resp: Todos</option>
-                            {opcoesColaboradores.map(nome => <option key={nome} value={nome}>{nome}</option>)}
+                            {listaResponsaveis.map(nome => <option key={nome} value={nome}>{nome}</option>)}
                         </select>
-                        <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '14px', color: '#999', pointerEvents: 'none' }} />
                     </div>
                     <div style={{ position: 'relative', minWidth: '200px' }}>
                         <select className="search-input" value={filtroTratamento} onChange={(e) => { setCurrentPage(1); setFiltroTratamento(e.target.value); }} style={{width: '100%'}}>
                             <option value="">Tratamento: Todos</option>
-                            {LISTA_TRATAMENTOS.map(trat => <option key={trat} value={trat}>{trat}</option>)}
+                            {listaTratamentos.map(trat => <option key={trat} value={trat}>{trat}</option>)}
                         </select>
-                        <ChevronDown size={16} style={{ position: 'absolute', right: '12px', top: '14px', color: '#999', pointerEvents: 'none' }} />
                     </div>
                     <div style={{ position: 'relative', minWidth: '250px' }}>
                         <input type="text" placeholder="Busca por Nº Processo" className="search-input" value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ width: '100%', paddingLeft: '40px' }} />
@@ -559,6 +587,7 @@ export default function App() {
                     <div className="admin-title"><User size={16} /> Responsável (Admin)</div>
                     <div className="admin-controls">
                         <div style={{flex: 1, position: 'relative'}}>
+                            {/* LISTA DINÂMICA DE COLABORADORES NO MODAL */}
                             <input list="lista-colaboradores" type="text" className="input-admin" placeholder="Selecione..." value={novoColaborador} onChange={(e) => setNovoColaborador(e.target.value)} style={{ width: '100%' }} />
                             <ChevronDown size={14} style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#999'}} />
                             <datalist id="lista-colaboradores">{opcoesColaboradores.map((nome, index) => <option key={index} value={nome} />)}</datalist>
@@ -617,8 +646,9 @@ export default function App() {
               </div>
 
               <div className="section-subtitle"><Activity size={16} /> Status</div>
+              {/* LISTA DINÂMICA DE STATUS NO MODAL */}
               <div className="status-grid">
-                {LISTA_STATUS.map(status => {
+                {listaStatus.map(status => {
                   const isFinalizado = selectedProcesso.status === 'assinado e tramitado';
                   const isCurrent = status === selectedProcesso.status;
                   const isDisabled = isFinalizado && !isCurrent; 

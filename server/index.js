@@ -1,82 +1,143 @@
 const express = require('express');
-const { MongoClient } = require('mongodb');
+const { Pool } = require('pg');
 const cors = require('cors');
+require('dotenv').config(); 
 
-// --- CONFIGURAÇÕES ---
 const app = express();
-const PORT = process.env.PORT || 3001; 
-const MONGODB_URI = process.env.MONGODB_URI;
+const PORT = process.env.PORT || 3001;
 
-// --- CONFIGURAÇÃO DE CORS ---
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: {
+        rejectUnauthorized: false
+    }
+});
+
 app.use(cors({
-    origin: '*', 
+    origin: '*',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
 }));
 
 app.use(express.json());
 
-let db;
-
-// --- CONEXÃO MONGO ---
-async function conectarMongo() {
-    try {
-        const client = new MongoClient(MONGODB_URI);
-        await client.connect();
-        db = client.db('guias_db');
-        console.log('✅ API conectada ao MongoDB!');
-    } catch (error) {
-        console.error('❌ Falha na conexão com Mongo:', error);
-    }
-}
-conectarMongo();
+pool.connect()
+    .then(client => {
+        client.release();
+    })
+    .catch(err => console.error('❌ Falha na conexão com Neon:', err));
 
 // --- ROTAS ---
 
-app.get('/api/health', (req, res) => {
-    res.json({ 
-        status: 'online', 
-        timestamp: new Date().toISOString(),
-        db: db ? 'connected' : 'disconnected'
-    });
+app.get('/api/health', async (req, res) => {
+    try {
+        const result = await pool.query('SELECT NOW()');
+        res.json({
+            status: 'online',
+            timestamp: new Date().toISOString(),
+            db: 'connected',
+            serverTime: result.rows[0].now
+        });
+    } catch (error) {
+        res.status(500).json({ status: 'offline', error: error.message });
+    }
 });
 
 app.get('/api/processos', async (req, res) => {
     try {
-        if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
-
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 20;
         const search = req.query.search || '';
-        const status = req.query.status || ''; 
+        const status = req.query.status || '';
         const responsavel = req.query.responsavel || '';
         const tratamento = req.query.tratamento || '';
-
-        const skip = (page - 1) * limit;
-        let query = {};
+        const producao = req.query.producao || '';
+        
+        const offset = (page - 1) * limit;
+        
+        const params = [];
+        let whereClauses = ['1=1'];
+        let paramIndex = 1;
 
         if (search) {
-            query.$or = [
-                { numeroProcesso: { $regex: search, $options: 'i' } },
-                { credenciado: { $regex: search, $options: 'i' } }
-            ];
+            whereClauses.push(`(numero_processo ILIKE $${paramIndex} OR credenciado ILIKE $${paramIndex})`);
+            params.push(`%${search}%`);
+            paramIndex++;
         }
         if (status) {
-            query.status = status;
+            whereClauses.push(`status = $${paramIndex}`);
+            params.push(status);
+            paramIndex++;
         }
-        if (responsavel) query.responsavel = responsavel;
-        if (tratamento) query.tratamento = { $regex: tratamento, $options: 'i' };
+        if (responsavel) {
+            whereClauses.push(`responsavel ILIKE $${paramIndex}`);
+            params.push(`%${responsavel}%`);
+            paramIndex++;
+        }
+        if (tratamento) {
+            whereClauses.push(`tratamento ILIKE $${paramIndex}`);
+            params.push(`%${tratamento}%`);
+            paramIndex++;
+        }
+        if (producao) {
+            whereClauses.push(`producao ILIKE $${paramIndex}`);
+            params.push(`%${producao}%`);
+            paramIndex++;
+        }
 
-        const totalRegistros = await db.collection('processos').countDocuments(query);
-        const processos = await db.collection('processos')
-            .find(query)
-            .sort({ dataImportacao: -1 })
-            .skip(skip)
-            .limit(limit)
-            .toArray();
+        const whereSql = whereClauses.join(' AND ');
+
+        const countQuery = `SELECT COUNT(*) FROM processos WHERE ${whereSql}`;
+        const countResult = await pool.query(countQuery, params);
+        const totalRegistros = parseInt(countResult.rows[0].count);
+
+        const dataQuery = `
+            SELECT 
+                id,
+                id as "_id", 
+                nup,
+                numero_processo as "numeroProcesso",
+                credenciado,
+                data_recebimento as "dataRecebimento",
+                status,
+                valor_capa as "valorCapa",
+                valor_glosa as "valorGlosa",
+                valor_liberado as "valorLiberado",
+                responsavel,
+                tratamento,
+                producao,
+                tipo_processo as "tipoProcesso",
+                ultima_atualizacao as "ultimaAtualizacao",
+                (
+                    SELECT json_agg(json_build_object(
+                        'de', h.de_status,
+                        'para', h.para_status,
+                        'usuario', h.usuario,
+                        'responsavel', h.responsavel,
+                        'data', h.data_mudanca
+                    ))
+                    FROM historico_status h
+                    WHERE h.processo_id = processos.id
+                ) as "historicoStatus"
+            FROM processos
+            WHERE ${whereSql}
+            ORDER BY ultima_atualizacao DESC
+            LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
+        `;
+
+        const dataParams = [...params, limit, offset];
+        const { rows } = await pool.query(dataQuery, dataParams);
+
+        const processosFormatados = rows.map(p => ({
+            ...p,
+            historicoStatus: p.historicoStatus || [],
+            valorCapa: parseFloat(p.valorCapa || 0),
+            valorGlosa: parseFloat(p.valorGlosa || 0),
+            valorLiberado: parseFloat(p.valorLiberado || 0)
+        }));
 
         res.json({
-            data: processos,
+            data: processosFormatados,
             meta: {
                 total: totalRegistros,
                 page: page,
@@ -84,83 +145,107 @@ app.get('/api/processos', async (req, res) => {
                 totalPages: Math.ceil(totalRegistros / limit)
             }
         });
+
     } catch (error) {
         console.error("Erro na busca:", error);
         res.status(500).json({ error: 'Erro interno ao buscar processos' });
     }
 });
 
-// --- ROTA DE ATUALIZAÇÃO (COM LÓGICA FINANCEIRA) ---
 app.put('/api/processos/:nup', async (req, res) => {
-    if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
-
-    const { nup } = req.params;
-    const { 
-        novoStatus, 
-        usuarioEmail, 
-        usuarioNome, 
-        statusAnterior,
-        valorCapa,      
-        valorGlosa,     
-        valorLiberado   
-    } = req.body;
-
-    if (!novoStatus || !usuarioEmail) return res.status(400).json({ error: 'Dados incompletos' });
-
+    const client = await pool.connect();
+    
     try {
-        const updateFields = {
-            status: novoStatus,
-            ultimaAtualizacao: new Date()
-        };
+        const { nup } = req.params;
+        const { 
+            novoStatus, 
+            usuarioEmail, 
+            usuarioNome, 
+            statusAnterior,
+            valorCapa,      
+            valorGlosa,     
+            valorLiberado   
+        } = req.body;
 
-        // Atualiza valores financeiros se foram enviados
-        if (valorCapa !== undefined && valorCapa !== null && valorCapa !== '') updateFields.valorCapa = Number(valorCapa);
-        if (valorGlosa !== undefined && valorGlosa !== null && valorGlosa !== '') updateFields.valorGlosa = Number(valorGlosa);
-        if (valorLiberado !== undefined && valorLiberado !== null && valorLiberado !== '') updateFields.valorLiberado = Number(valorLiberado);
+        if (!novoStatus || !usuarioEmail) return res.status(400).json({ error: 'Dados incompletos' });
 
-        const resultado = await db.collection('processos').updateOne(
-            { nup: nup },
-            {
-                $set: updateFields,
-                $push: {
-                    historicoStatus: {
-                        de: statusAnterior || 'Sem status',
-                        para: novoStatus,
-                        usuario: usuarioEmail,
-                        responsavel: usuarioNome,
-                        data: new Date()
-                    }
-                }
-            }
-        );
-        if (resultado.modifiedCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
+        await client.query('BEGIN');
+
+        const procResult = await client.query('SELECT id FROM processos WHERE nup = $1', [nup]);
+        if (procResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            return res.status(404).json({ error: 'Processo não encontrado' });
+        }
+        const processoId = procResult.rows[0].id;
+
+        const updates = ['status = $1', 'ultima_atualizacao = NOW()'];
+        const values = [novoStatus];
+        let paramCounter = 2;
+
+        if (valorCapa !== undefined && valorCapa !== null && valorCapa !== '') {
+            updates.push(`valor_capa = $${paramCounter++}`);
+            values.push(Number(valorCapa));
+        }
+        if (valorGlosa !== undefined && valorGlosa !== null && valorGlosa !== '') {
+            updates.push(`valor_glosa = $${paramCounter++}`);
+            values.push(Number(valorGlosa));
+        }
+        if (valorLiberado !== undefined && valorLiberado !== null && valorLiberado !== '') {
+            updates.push(`valor_liberado = $${paramCounter++}`);
+            values.push(Number(valorLiberado));
+        }
+
+        values.push(nup);
+        const updateQuery = `
+            UPDATE processos 
+            SET ${updates.join(', ')} 
+            WHERE nup = $${paramCounter}
+        `;
+        
+        await client.query(updateQuery, values);
+
+        const insertHistoryQuery = `
+            INSERT INTO historico_status 
+            (processo_id, de_status, para_status, usuario, responsavel, data_mudanca)
+            VALUES ($1, $2, $3, $4, $5, NOW())
+        `;
+        await client.query(insertHistoryQuery, [
+            processoId, 
+            statusAnterior || 'Sem status', 
+            novoStatus, 
+            usuarioEmail, 
+            usuarioNome
+        ]);
+
+        await client.query('COMMIT');
         res.json({ success: true, message: 'Status e valores atualizados!' });
+
     } catch (error) {
+        await client.query('ROLLBACK');
         console.error("Erro atualização:", error);
         res.status(500).json({ error: 'Erro ao atualizar processo' });
+    } finally {
+        client.release();
     }
 });
 
 app.put('/api/processos/:nup/colaborador', async (req, res) => {
-    if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
-
-    const { nup } = req.params;
-    const { novoColaborador, usuarioEmail } = req.body;
-
-    if (!novoColaborador) return res.status(400).json({ error: 'Nome obrigatório' });
-
     try {
-        const resultado = await db.collection('processos').updateOne(
-            { nup: nup },
-            {
-                $set: { 
-                    colaborador: novoColaborador,
-                    dataAtribuicao: new Date(),
-                    atribuidoPor: usuarioEmail
-                }
-            }
-        );
-        if (resultado.modifiedCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
+        const { nup } = req.params;
+        const { novoColaborador, usuarioEmail } = req.body;
+
+        if (!novoColaborador) return res.status(400).json({ error: 'Nome obrigatório' });
+
+        const query = `
+            UPDATE processos 
+            SET responsavel = $1, origem_atualizacao = $2
+            WHERE nup = $3
+        `;
+        
+        const result = await pool.query(query, [novoColaborador, `Atribuído por ${usuarioEmail}`, nup]);
+
+        if (result.rowCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
+        
         res.json({ success: true, message: 'Colaborador atualizado!' });
     } catch (error) {
         console.error("Erro colaborador:", error);
@@ -170,43 +255,71 @@ app.put('/api/processos/:nup/colaborador', async (req, res) => {
 
 app.get('/api/dashboard/resumo', async (req, res) => {
     try {
-        if (!db) return res.status(503).json({ error: 'Banco de dados iniciando...' });
-
         const { startDate, endDate, isFinalized } = req.query;
-        const baseQuery = { responsavel: { $exists: true, $ne: "" } };
         
+
+        let whereClauses = ['1=1'];
+        const params = [];
+        let pIndex = 1;
+
+        // Filtro de Data
         if (startDate && endDate) {
-            baseQuery.dataRegulacao = { $gte: startDate, $lte: endDate };
-        }
-        if (isFinalized === 'true') {
-            baseQuery.status = 'Assinado e Tramitado';
-        } else if (isFinalized === 'false') {
-            baseQuery.status = { $ne: 'Assinado e Tramitado' };
+            whereClauses.push(`ultima_atualizacao >= $${pIndex} AND ultima_atualizacao <= $${pIndex + 1}`);
+            params.push(`${startDate} 00:00:00`, `${endDate} 23:59:59`);
+            pIndex += 2;
         }
 
-        const processos = await db.collection('processos').find(baseQuery).project({ 
-            responsavel: 1, valorCapa: 1, nup: 1, credenciado: 1,
-            dataRecebimento: 1, numeroProcesso: 1, producao: 1,
-            status: 1, tipoProcesso: 1, tratamento: 1, ultimaAtualizacao: 1
-        }).toArray();
+        if (isFinalized === 'true') {
+            whereClauses.push(`status = 'CONCLUIDO'`);
+        } else if (isFinalized === 'false') {
+            whereClauses.push(`status != 'CONCLUIDO'`);
+            whereClauses.push(`status != 'EXCLUIDO'`);
+        } else {
+            whereClauses.push(`status != 'EXCLUIDO'`);
+        }
+
+        const query = `
+            SELECT 
+                COALESCE(NULLIF(responsavel, ''), 'Sem Responsável') as nome,
+                COUNT(*) as qtd,
+                SUM(CAST(valor_capa AS DECIMAL)) as total
+            FROM processos
+            WHERE ${whereClauses.join(' AND ')}
+            GROUP BY COALESCE(NULLIF(responsavel, ''), 'Sem Responsável')
+            ORDER BY total DESC
+        `;
+
+        const { rows } = await pool.query(query, params);
+
+        const rawQuery = `
+            SELECT 
+                COALESCE(NULLIF(responsavel, ''), 'Sem Responsável') as responsavel,
+                valor_capa as "valorCapa", 
+                nup, 
+                credenciado,
+                data_recebimento as "dataRecebimento", 
+                numero_processo as "numeroProcesso", 
+                producao,
+                status, 
+                tipo_processo as "tipoProcesso", 
+                tratamento, 
+                ultima_atualizacao as "ultimaAtualizacao"
+            FROM processos
+            WHERE ${whereClauses.join(' AND ')}
+        `;
+        
+        const rawData = await pool.query(rawQuery, params);
 
         const stats = {};
-        processos.forEach(p => {
-            const nome = p.responsavel;
-            let valorNumerico = 0;
-            if (p.valorCapa) {
-                if (typeof p.valorCapa === 'number') {
-                    valorNumerico = p.valorCapa;
-                } else {
-                    const limpo = p.valorCapa.toString().replace(/\./g, '').replace(',', '.');
-                    valorNumerico = parseFloat(limpo) || 0;
-                }
-            }
+        rawData.rows.forEach(p => {
+            const nome = p.responsavel; 
+            let valorRaw = p.valorCapa ? p.valorCapa.toString().replace('.', '').replace(',', '.') : '0';
+            if (typeof p.valorCapa === 'number') valorRaw = p.valorCapa;
+            let valorNumerico = parseFloat(valorRaw) || 0;
 
             if (!stats[nome]) {
                 stats[nome] = { nome: nome, qtd: 0, total: 0, processos: [] };
             }
-
             stats[nome].qtd += 1;
             stats[nome].total += valorNumerico;
             stats[nome].processos.push(p);
@@ -214,9 +327,29 @@ app.get('/api/dashboard/resumo', async (req, res) => {
 
         const resultado = Object.values(stats).sort((a, b) => b.total - a.total);
         res.json(resultado);
+
     } catch (error) {
-        console.error("Erro dashboard:", error);
+        console.error("❌ Erro no dashboard:", error);
         res.status(500).json({ error: 'Erro ao gerar dashboard' });
+    }
+});
+
+app.get('/api/filtros', async (req, res) => {
+    try {
+        const [respResult, tratResult, statusResult] = await Promise.all([
+            pool.query("SELECT DISTINCT responsavel FROM processos WHERE responsavel IS NOT NULL AND responsavel != '' ORDER BY responsavel"),
+            pool.query("SELECT DISTINCT tratamento FROM processos WHERE tratamento IS NOT NULL AND tratamento != '' ORDER BY tratamento"),
+            pool.query("SELECT DISTINCT status FROM processos WHERE status IS NOT NULL AND status != '' ORDER BY status")
+        ]);
+
+        res.json({
+            responsaveis: respResult.rows.map(r => r.responsavel),
+            tratamentos: tratResult.rows.map(r => r.tratamento),
+            status: statusResult.rows.map(r => r.status)
+        });
+    } catch (error) {
+        console.error("Erro ao buscar filtros:", error);
+        res.status(500).json({ error: 'Erro interno ao carregar filtros' });
     }
 });
 
