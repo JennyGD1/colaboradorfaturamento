@@ -41,11 +41,8 @@ const auth = app ? getAuth(app) : null;
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 const ITEMS_PER_PAGE = 20;
 
-const ADMIN_EMAILS = [
-  'rossyneide@maida.health',
-  'jennifer.batista@maida.health',
-  'lucas@maida.health'
-];
+const envAdmins = import.meta.env.VITE_ADMIN_EMAILS || '';
+const ADMIN_EMAILS = envAdmins.split(',').map(email => email.trim().toLowerCase());
 
 export default function App() {
   const [user, setUser] = useState(null);
