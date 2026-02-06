@@ -238,15 +238,28 @@ app.put('/api/processos/:nup/colaborador', async (req, res) => {
 
         const query = `
             UPDATE processos 
-            SET responsavel = $1, origem_atualizacao = $2
+            SET 
+                responsavel = $1, 
+                origem_atualizacao = $2,
+                status = CASE 
+                    WHEN status = 'CONCLUIDO' THEN status 
+                    ELSE 'EM_ANALISE' 
+                END,
+                ultima_atualizacao = NOW()
             WHERE nup = $3
+            RETURNING status
         `;
         
         const result = await pool.query(query, [novoColaborador, `Atribuído por ${usuarioEmail}`, nup]);
 
         if (result.rowCount === 0) return res.status(404).json({ error: 'Processo não encontrado' });
         
-        res.json({ success: true, message: 'Colaborador atualizado!' });
+        res.json({ 
+            success: true, 
+            message: 'Colaborador atualizado!', 
+            novoStatus: result.rows[0].status 
+        });
+
     } catch (error) {
         console.error("Erro colaborador:", error);
         res.status(500).json({ error: 'Erro ao atualizar colaborador' });

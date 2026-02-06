@@ -281,26 +281,52 @@ export default function App() {
 
   const salvarColaborador = async () => {
     if (!selectedProcesso || !user) return;
+    
     if (novoColaborador && !opcoesColaboradores.includes(novoColaborador)) {
         setOpcoesColaboradores(p => [...p, novoColaborador].sort());
         setListaResponsaveis(p => [...p, novoColaborador].sort());
     }
     
-    const processoAtualizado = { ...selectedProcesso, responsavel: novoColaborador };
+    const novoStatusCalculado = selectedProcesso.status === 'CONCLUIDO' 
+        ? 'CONCLUIDO' 
+        : 'EM_ANALISE';
+
+    const processoAtualizado = { 
+        ...selectedProcesso, 
+        responsavel: novoColaborador,
+        status: novoStatusCalculado
+    };
+
     setSelectedProcesso(processoAtualizado);
     setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
 
     try {
-        await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { novoColaborador, usuarioEmail: user.email });
+        await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { 
+            novoColaborador, 
+            usuarioEmail: user.email 
+        });
         alert("Colaborador atualizado!");
-    } catch (e) { alert("Erro ao salvar."); buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); }
+    } catch (e) { 
+        alert("Erro ao salvar."); 
+        buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); 
+    }
   };
 
   const assumirProcesso = async () => {
     if (!selectedProcesso || !user) return;
+    
     const nomeUsuario = user.displayName || user.email; 
     
-    const processoAtualizado = { ...selectedProcesso, responsavel: nomeUsuario };
+    const novoStatusCalculado = selectedProcesso.status === 'CONCLUIDO' 
+        ? 'CONCLUIDO' 
+        : 'EM_ANALISE';
+
+    const processoAtualizado = { 
+        ...selectedProcesso, 
+        responsavel: nomeUsuario,
+        status: novoStatusCalculado 
+    };
+    
     setSelectedProcesso(processoAtualizado);
     setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
 
@@ -309,7 +335,6 @@ export default function App() {
     }
 
     try {
-        // Envia para o backend
         await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { 
             novoColaborador: nomeUsuario, 
             usuarioEmail: user.email 
@@ -638,7 +663,6 @@ export default function App() {
                           <div className="admin-controls">
                               <div style={{flex: 1, position: 'relative'}}>
                                   <input list="lista-colaboradores" type="text" className="input-admin" placeholder="Selecione..." value={novoColaborador} onChange={(e) => setNovoColaborador(e.target.value)} style={{ width: '100%' }} />
-                                  <ChevronDown size={14} style={{position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none', color: '#999'}} />
                                   <datalist id="lista-colaboradores">{opcoesColaboradores.map((nome, index) => <option key={index} value={nome} />)}</datalist>
                               </div>
                               <button onClick={salvarColaborador} className="btn-save" style={{backgroundColor: '#64748b'}}><Save size={16} /> Salvar</button>
