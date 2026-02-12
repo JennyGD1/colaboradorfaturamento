@@ -121,7 +121,7 @@ app.get('/api/processos', async (req, res) => {
                 ) as "historicoStatus"
             FROM processos
             WHERE ${whereSql}
-            ORDER BY TO_DATE(NULLIF(data_recebimento, ''), 'DD/MM/YYYY') ASC NULLS LAST
+            ORDER BY id ASC (NULLIF(data_recebimento, ''), 'DD/MM/YYYY') ASC NULLS LAST
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
 
