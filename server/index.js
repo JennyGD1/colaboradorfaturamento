@@ -121,7 +121,9 @@ app.get('/api/processos', async (req, res) => {
                 ) as "historicoStatus"
             FROM processos
             WHERE ${whereSql}
-            ORDER BY ultima_atualizacao DESC
+            
+            ORDER BY id ASC 
+            
             LIMIT $${paramIndex} OFFSET $${paramIndex + 1}
         `;
 
