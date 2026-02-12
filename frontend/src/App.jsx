@@ -399,6 +399,61 @@ export default function App() {
       </div>
     );
   }
+  const calcularDiasCorridos = (dataString) => {
+    if (!dataString) return 0;
+
+    const dataLimpa = dataString.replace(/-/g, '/').split('T')[0];
+    const partes = dataLimpa.split('/');
+
+    if (partes.length !== 3) return 0;
+
+    const mesesExtenso = {
+        'JAN': 0, 'FEV': 1, 'MAR': 2, 'ABR': 3, 'MAI': 4, 'JUN': 5,
+        'JUL': 6, 'AGO': 7, 'SET': 8, 'OUT': 9, 'NOV': 10, 'DEZ': 11
+    };
+
+    let dia, mes, ano;
+
+    const segundoItem = partes[1].toUpperCase();
+    if (mesesExtenso[segundoItem] !== undefined) {
+         dia = parseInt(partes[0]);
+         mes = mesesExtenso[segundoItem];
+         ano = parseInt(partes[2]);
+    } else {
+         if (partes[0].length === 4) { 
+            ano = parseInt(partes[0]);
+            mes = parseInt(partes[1]) - 1; 
+            dia = parseInt(partes[2]);
+         } else { 
+            dia = parseInt(partes[0]);
+            mes = parseInt(partes[1]) - 1;
+            ano = parseInt(partes[2]);
+         }
+    }
+
+    const dataRecebimento = new Date(ano, mes, dia);
+    const hoje = new Date();
+    
+    dataRecebimento.setHours(0,0,0,0);
+    hoje.setHours(0,0,0,0);
+
+    if (isNaN(dataRecebimento.getTime())) return 0;
+
+    const diffTempo = hoje - dataRecebimento;
+    const diffDias = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
+    
+    return diffDias >= 0 ? diffDias : 0;
+  };
+
+  const getSlaStyle = (dias) => {
+    if (dias > 30) {
+      return { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: 'Crítico' }; // Vermelho
+    }
+    if (dias > 20) {
+      return { bg: '#fef9c3', color: '#b45309', border: '#fde047', label: 'Atenção' }; // Amarelo
+    }
+    return { bg: '#dbeafe', color: '#1e40af', border: '#93c5fd', label: 'No prazo' }; // Azul (padrão 1-20)
+  };
 
   const isAdmin = ADMIN_EMAILS.includes(user.email);
 
@@ -504,12 +559,37 @@ export default function App() {
                     <div className="modules-grid">
                       {processos.map((processo) => {
                         const nomeResponsavel = processo.responsavel || processo.colaborador;
+                        const diasCorridos = calcularDiasCorridos(processo.dataRecebimento);
+                        const slaStyle = getSlaStyle(diasCorridos);
+                        const isConcluido = processo.status === 'CONCLUIDO' || processo.status === 'assinado e tramitado';
                         return (
                           <div key={processo._id || Math.random()} className="module-card" onClick={() => { setSelectedProcesso(processo); setModalOpen(true); }}>
                             <div className="card-header" style={{ marginBottom: '10px' }}>
                               <span className={`status-badge ${getStatusClass(processo.status)}`}>{processo.status || 'NOVO'}</span>
                               <span style={{ fontSize: '0.8rem', color: '#999', display: 'flex', alignItems: 'center', gap: '4px' }}><Clock size={12} /> {processo.dataRecebimento}</span>
                             </div>
+                            {!isConcluido && processo.dataRecebimento && (
+                                <div style={{
+                                    marginBottom: '10px',
+                                    padding: '4px 8px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.75rem',
+                                    fontWeight: 'bold',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    width: 'fit-content',
+                                    justifyContent: 'space-between',
+                                    gap: '10px',
+                                    backgroundColor: slaStyle.bg,
+                                    color: slaStyle.color,
+                                    border: `1px solid ${slaStyle.border}`
+                                }}>
+                                    <span style={{display: 'flex', alignItems: 'center', gap: '4px'}}>
+                                        <Calendar size={12} /> {diasCorridos === 0 ? 'Hoje' : `${diasCorridos} dias`}
+                                    </span>
+                                    {diasCorridos > 30 && <AlertCircle size={12} />} 
+                                </div>
+                                )}
                             {nomeResponsavel ? (
                                 <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '4px 10px', borderRadius: '6px', fontSize: '0.85rem', fontWeight: '600', marginBottom: '8px', border: '1px solid #dbeafe' }}>
                                     <User size={14} /> {nomeResponsavel}
