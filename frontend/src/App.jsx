@@ -38,7 +38,7 @@ if (!isFirebaseConfigValid) {
 const app = isFirebaseConfigValid ? initializeApp(firebaseConfig) : null;
 const auth = app ? getAuth(app) : null;
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+const API_URL = import.meta.env.VITE_API_URL;
 const ITEMS_PER_PAGE = 20;
 
 const envAdmins = import.meta.env.VITE_ADMIN_EMAILS || '';
