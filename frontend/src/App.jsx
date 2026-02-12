@@ -168,7 +168,21 @@ export default function App() {
                  isFinalized: filtroFinalizado
              }
         });
-        setDashboardData(response.data);
+
+        const dadosCorrigidos = response.data.map(colaborador => {
+            const totalReal = (colaborador.processos || []).reduce((acc, proc) => {
+                const valorLimpo = proc.valorCapa ? parseFloat(String(proc.valorCapa).replace(',', '.')) : 0;
+                return acc + (isNaN(valorLimpo) ? 0 : valorLimpo);
+            }, 0);
+
+            return {
+                ...colaborador,
+                total: totalReal 
+            };
+        });
+        
+        setDashboardData(dadosCorrigidos);
+
     } catch (error) {
         console.error("Erro dashboard:", error);
         setErroLogin("Erro de conexão com o servidor.");
