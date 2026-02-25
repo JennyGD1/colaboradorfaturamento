@@ -48,6 +48,7 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [firebaseError, setFirebaseError] = useState('');
+  const [totalAnalisadoHoje, setTotalAnalisadoHoje] = useState(0);
   
   const [currentView, setCurrentView] = useState('lista');
 
@@ -63,6 +64,7 @@ export default function App() {
   const [filtroTratamento, setFiltroTratamento] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
   const [filtroProducao, setFiltroProducao] = useState('');
+  const [filtroDataRecebimento, setFiltroDataRecebimento] = useState('');
   
   const [dashboardStartDate, setDashboardStartDate] = useState(() => {
     const today = new Date();
@@ -71,6 +73,7 @@ export default function App() {
   const [dashboardEndDate, setDashboardEndDate] = useState(new Date().toISOString().split('T')[0]);
   const [filtroFinalizado, setFiltroFinalizado] = useState('true'); 
   
+
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRegistros, setTotalRegistros] = useState(0);
@@ -96,7 +99,7 @@ export default function App() {
 
   const carregarFiltrosDoBanco = useCallback(async () => {
     try {
-        const response = await axios.get(`${API_URL}/filtros`);
+        const response = await axios.get(`${API_URL}/api/filtros`);
         setListaResponsaveis(response.data.responsaveis || []);
         setListaTratamentos(response.data.tratamentos || []);
         setListaStatus(response.data.status || []);
@@ -106,6 +109,24 @@ export default function App() {
     }
   }, []);
 
+  const aplicarMascaraMoeda = (valor) => {
+      if (valor === null || valor === undefined || valor === '') return '';
+      const apenasNumeros = valor.toString().replace(/\D/g, '');
+      if (apenasNumeros === '') return '';
+      
+      const valorFloat = parseInt(apenasNumeros, 10) / 100;
+      
+      return new Intl.NumberFormat('pt-BR', {
+          style: 'currency',
+          currency: 'BRL'
+      }).format(valorFloat);
+  };
+  const desmascararMoeda = (valorFormatado) => {
+      if (!valorFormatado) return null;
+      const apenasNumeros = valorFormatado.toString().replace(/\D/g, '');
+      if (apenasNumeros === '') return null;
+      return parseFloat(apenasNumeros) / 100;
+  };
   useEffect(() => {
     if (!auth) {
       setFirebaseError('Configuração do Firebase não encontrada.');
@@ -134,38 +155,115 @@ export default function App() {
 
   useEffect(() => {
     if (selectedProcesso) {
-        setInputValorCapa(selectedProcesso.valorCapa || '');
-        setInputValorGlosa(selectedProcesso.valorGlosa || '');
-        setInputValorLiberado(selectedProcesso.valorLiberado || '');
+        setInputValorCapa(selectedProcesso.valorCapa ? formatCurrency(selectedProcesso.valorCapa) : '');
+        setInputValorGlosa(selectedProcesso.valorGlosa ? formatCurrency(selectedProcesso.valorGlosa) : '');
+        setInputValorLiberado(selectedProcesso.valorLiberado ? formatCurrency(selectedProcesso.valorLiberado) : '');
     }
   }, [selectedProcesso]);
-  
-  const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '', prodTerm = '') => {
-    try {
-      setLoading(true);
-      const response = await axios.get(`${API_URL}/processos`, {
-        params: { page, limit: ITEMS_PER_PAGE, search: searchTerm, responsavel: respTerm, tratamento: tratTerm, status: statusTerm, producao: prodTerm }
-      });
-      setProcessos(response.data.data || []);
-      setTotalPages(response.data.meta?.totalPages || 1);
-      setTotalRegistros(response.data.meta?.total || 0);
-      setCurrentPage(response.data.meta?.page || 1);
-    } catch (error) {
-      console.error("Erro busca:", error);
-      setErroLogin("Erro de conexão com o servidor.");
-    } finally {
-      setLoading(false);
+
+  const calcularDiasCorridos = (dataString) => {
+    if (!dataString) return 0;
+
+    const dataLimpa = dataString.replace(/-/g, '/').split('T')[0];
+    const partes = dataLimpa.split('/');
+
+    if (partes.length !== 3) return 0;
+
+    const mesesExtenso = {
+        'JAN': 0, 'FEV': 1, 'MAR': 2, 'ABR': 3, 'MAI': 4, 'JUN': 5,
+        'JUL': 6, 'AGO': 7, 'SET': 8, 'OUT': 9, 'NOV': 10, 'DEZ': 11
+    };
+
+    let dia, mes, ano;
+
+    const segundoItem = partes[1].toUpperCase();
+    if (mesesExtenso[segundoItem] !== undefined) {
+        dia = parseInt(partes[0]);
+        mes = mesesExtenso[segundoItem];
+        ano = parseInt(partes[2]);
+    } else {
+        if (partes[0].length === 4) { 
+            ano = parseInt(partes[0]);
+            mes = parseInt(partes[1]) - 1; 
+            dia = parseInt(partes[2]);
+        } else { 
+            dia = parseInt(partes[0]);
+            mes = parseInt(partes[1]) - 1;
+            ano = parseInt(partes[2]);
+        }
     }
-  }, []);
+
+    const dataRecebimento = new Date(ano, mes, dia);
+    const hoje = new Date();
+    
+    dataRecebimento.setHours(0,0,0,0);
+    hoje.setHours(0,0,0,0);
+
+    if (isNaN(dataRecebimento.getTime())) return 0;
+
+    const diffTempo = hoje - dataRecebimento;
+    let diffDias = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
+    
+    return diffDias >= 0 ? diffDias : 0;
+  };
+
+
+  const buscarProcessos = useCallback(async (page = 1, searchTerm = '', respTerm = '', tratTerm = '', statusTerm = '', prodTerm = '', recTerm = '') => {
+    try {
+        setLoading(true);
+        
+        const params = { 
+            responsavel: respTerm, 
+            tratamento: tratTerm, 
+            status: statusTerm,
+            numeroProcesso: searchTerm
+        };
+
+        if (recTerm) {
+            const [year, month, day] = recTerm.split('-');
+            const meses = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+            params.dataRecebimento = `${day}-${meses[parseInt(month, 10) - 1]}-${year}`;
+        }
+
+        const response = await axios.get(`${API_URL}/api/processos`, { params });
+        
+        let dados = response.data;
+        
+        
+        const start = (page - 1) * ITEMS_PER_PAGE;
+        const end = start + ITEMS_PER_PAGE;
+        
+        setProcessos(dados.slice(start, end));
+        setTotalRegistros(dados.length);
+        setTotalPages(Math.ceil(dados.length / ITEMS_PER_PAGE));
+        setCurrentPage(page);
+        
+    } catch (error) {
+        console.error("❌ Erro busca:", error);
+        setErroLogin("Erro de conexão com o servidor.");
+    } finally {
+        setLoading(false);
+    }
+}, []);
 
   const carregarDashboard = async () => {
     try {
         setLoading(true);
-        const response = await axios.get(`${API_URL}/dashboard/resumo`, {
+        
+        const response = await axios.get(`${API_URL}/api/dashboard/resumo`, {
              params: {
                  startDate: dashboardStartDate,
                  endDate: dashboardEndDate,
                  isFinalized: filtroFinalizado
+             }
+        });
+
+        const hoje = new Date().toISOString().split('T')[0];
+        const responseHoje = await axios.get(`${API_URL}/api/dashboard/resumo`, {
+             params: {
+                 startDate: hoje,
+                 endDate: hoje,
+                 isFinalized: filtroFinalizado 
              }
         });
 
@@ -174,14 +272,20 @@ export default function App() {
                 const valorLimpo = proc.valorCapa ? parseFloat(String(proc.valorCapa).replace(',', '.')) : 0;
                 return acc + (isNaN(valorLimpo) ? 0 : valorLimpo);
             }, 0);
-
-            return {
-                ...colaborador,
-                total: totalReal 
-            };
+            return { ...colaborador, total: totalReal };
         });
         
+        let sumHoje = 0;
+        responseHoje.data.forEach(colaborador => {
+            const totalColab = (colaborador.processos || []).reduce((acc, proc) => {
+                const valorLimpo = proc.valorCapa ? parseFloat(String(proc.valorCapa).replace(',', '.')) : 0;
+                return acc + (isNaN(valorLimpo) ? 0 : valorLimpo);
+            }, 0);
+            sumHoje += totalColab;
+        });
+
         setDashboardData(dadosCorrigidos);
+        setTotalAnalisadoHoje(sumHoje); 
 
     } catch (error) {
         console.error("Erro dashboard:", error);
@@ -200,7 +304,7 @@ export default function App() {
   useEffect(() => {
     if (user) {
         if (currentView === 'lista') {
-            buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao);
+            buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao, filtroDataRecebimento);
         } else {
             carregarDashboard();
         }
@@ -211,6 +315,7 @@ export default function App() {
       filtroTratamento, 
       filtroStatus, 
       filtroProducao,
+      filtroDataRecebimento,
       user, 
       currentView, 
       dashboardStartDate, 
@@ -223,10 +328,10 @@ export default function App() {
     if (!user || currentView !== 'lista') return;
     const t = setTimeout(() => { 
         setCurrentPage(1); 
-        buscarProcessos(1, filtro, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao); 
+        buscarProcessos(1, filtro, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao, filtroDataRecebimento); 
     }, 500);
     return () => clearTimeout(t);
-  }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao]);
+  }, [filtro, user, buscarProcessos, currentView, filtroResponsavel, filtroTratamento, filtroStatus, filtroProducao, filtroDataRecebimento]);
 
   const mudarPagina = (n) => { if (n >= 1 && n <= totalPages) setCurrentPage(n); };
 
@@ -250,18 +355,18 @@ export default function App() {
         return;
     }
 
-    let payloadFinanceiro = {};
+    let payloadFinanceiro = {
+        valorCapa: desmascararMoeda(inputValorCapa),
+        valorGlosa: desmascararMoeda(inputValorGlosa) || 0,
+        valorLiberado: desmascararMoeda(inputValorLiberado)
+    };
 
     if (novoStatus === 'assinado e tramitado') {
         if (!inputValorCapa || !inputValorLiberado) {
             alert("Para finalizar, é obrigatório preencher 'Valor Capa' e 'Valor Liberado'.");
             return;
         }
-        payloadFinanceiro = {
-            valorCapa: inputValorCapa,
-            valorGlosa: inputValorGlosa || 0,
-            valorLiberado: inputValorLiberado
-        };
+        payloadFinanceiro.valorGlosa = inputValorGlosa || 0;
     }
     
     const processoAtualizado = { 
@@ -278,7 +383,7 @@ export default function App() {
     setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
 
     try {
-      await axios.put(`${API_URL}/processos/${selectedProcesso.nup}`, { 
+      await axios.put(`${API_URL}/api/processos/${selectedProcesso.nup}`, { 
           novoStatus, 
           statusAnterior: statusAntigo, 
           usuarioEmail: user.email, 
@@ -289,6 +394,44 @@ export default function App() {
       if (currentView === 'dashboard') carregarDashboard(); 
     } catch (e) { 
         alert("Erro ao salvar."); 
+        buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); 
+    }
+  };
+
+  const salvarValoresFinanceiros = async () => {
+    if (!selectedProcesso || !user) return;
+
+    const statusAtual = selectedProcesso.status || 'EM_ANALISE';
+
+    const payloadFinanceiro = {
+        valorCapa: desmascararMoeda(inputValorCapa),
+        valorGlosa: desmascararMoeda(inputValorGlosa) || 0,
+        valorLiberado: desmascararMoeda(inputValorLiberado)
+    };
+
+    const processoAtualizado = { 
+        ...selectedProcesso, 
+        ...payloadFinanceiro 
+    };
+
+    setSelectedProcesso(processoAtualizado);
+    setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
+
+    try {
+        await axios.put(`${API_URL}/api/processos/${selectedProcesso.nup}`, { 
+            novoStatus: statusAtual, 
+            statusAnterior: statusAtual, 
+            usuarioEmail: user.email, 
+            usuarioNome: user.displayName,
+            ...payloadFinanceiro
+        });
+        
+        alert("Valores financeiros atualizados com sucesso!");
+        carregarFiltrosDoBanco();
+        if (currentView === 'dashboard') carregarDashboard(); 
+    } catch (e) { 
+        console.error("Erro ao salvar valores:", e);
+        alert("Erro ao salvar os valores."); 
         buscarProcessos(currentPage, filtro, filtroResponsavel, filtroTratamento, filtroStatus); 
     }
   };
@@ -349,7 +492,7 @@ export default function App() {
     }
 
     try {
-        await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { 
+        await axios.put(`${API_URL}api/processos/${selectedProcesso.nup}/colaborador`, { 
             novoColaborador: nomeUsuario, 
             usuarioEmail: user.email 
         });
@@ -413,60 +556,15 @@ export default function App() {
       </div>
     );
   }
-  const calcularDiasCorridos = (dataString) => {
-    if (!dataString) return 0;
-
-    const dataLimpa = dataString.replace(/-/g, '/').split('T')[0];
-    const partes = dataLimpa.split('/');
-
-    if (partes.length !== 3) return 0;
-
-    const mesesExtenso = {
-        'JAN': 0, 'FEV': 1, 'MAR': 2, 'ABR': 3, 'MAI': 4, 'JUN': 5,
-        'JUL': 6, 'AGO': 7, 'SET': 8, 'OUT': 9, 'NOV': 10, 'DEZ': 11
-    };
-
-    let dia, mes, ano;
-
-    const segundoItem = partes[1].toUpperCase();
-    if (mesesExtenso[segundoItem] !== undefined) {
-         dia = parseInt(partes[0]);
-         mes = mesesExtenso[segundoItem];
-         ano = parseInt(partes[2]);
-    } else {
-         if (partes[0].length === 4) { 
-            ano = parseInt(partes[0]);
-            mes = parseInt(partes[1]) - 1; 
-            dia = parseInt(partes[2]);
-         } else { 
-            dia = parseInt(partes[0]);
-            mes = parseInt(partes[1]) - 1;
-            ano = parseInt(partes[2]);
-         }
-    }
-
-    const dataRecebimento = new Date(ano, mes, dia);
-    const hoje = new Date();
-    
-    dataRecebimento.setHours(0,0,0,0);
-    hoje.setHours(0,0,0,0);
-
-    if (isNaN(dataRecebimento.getTime())) return 0;
-
-    const diffTempo = hoje - dataRecebimento;
-    const diffDias = Math.ceil(diffTempo / (1000 * 60 * 60 * 24));
-    
-    return diffDias >= 0 ? diffDias : 0;
-  };
-
+  
   const getSlaStyle = (dias) => {
     if (dias > 30) {
-      return { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: 'Crítico' }; // Vermelho
+      return { bg: '#fee2e2', color: '#dc2626', border: '#fca5a5', label: 'Crítico' }; 
     }
     if (dias > 20) {
-      return { bg: '#fef9c3', color: '#b45309', border: '#fde047', label: 'Atenção' }; // Amarelo
+      return { bg: '#fef9c3', color: '#b45309', border: '#fde047', label: 'Atenção' }; 
     }
-    return { bg: '#dbeafe', color: '#1e40af', border: '#93c5fd', label: 'No prazo' }; // Azul (padrão 1-20)
+    return { bg: '#dbeafe', color: '#1e40af', border: '#93c5fd', label: 'No prazo' }; 
   };
 
   const isAdmin = ADMIN_EMAILS.includes(user.email);
@@ -512,59 +610,76 @@ export default function App() {
         
         {currentView === 'lista' && (
             <>
-                <div className="filters-bar">
-                  
-                  {/* INPUT DE DATA (MÊS/ANO) */}
-                  <div style={{ position: 'relative', minWidth: '150px' }}>
-                    <input 
-                        type="month" 
-                        className="search-input" 
-                        value={filtroProducao ? filtroProducao.split('/').reverse().join('-') : ''} 
-                        onChange={(e) => {
-                             const val = e.target.value;
-                             const newVal = val ? val.split('-').reverse().join('/') : '';
-                             setFiltroProducao(newVal);
-                        }} 
-                        style={{ width: '100%' }} 
-                    />
-                  </div>
+                <div className="filters-bar" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center' }}>
+  
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', gap: '15px' }}>
+                        
+                        {/* Esquerda: Título */}
+                        <div style={{ textAlign: 'left' }}>
+                            <h2 style={{ fontSize: '1.5rem', margin: '0 0 5px 0' }}>Processos</h2>
+                            <p style={{ color: '#666', margin: 0 }}>Total: {totalRegistros} registros</p>
+                        </div>
 
-                  <div style={{ flex: 1 }}>
-                    <h2 style={{ fontSize: '1.5rem', marginBottom: '5px' }}>Processos</h2>
-                    <p style={{ color: '#666' }}>Total: {totalRegistros} registros</p>
-                  </div>
+                        {/* Direita: Filtros de Data*/}
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                            
+                            {/* Filtro 1: Produção */}
+                            <div style={{ position: 'relative', minWidth: '150px' }}>
+                                <input 
+                                    type="month" 
+                                    className="search-input" 
+                                    value={filtroProducao ? filtroProducao.split('/').reverse().join('-') : ''} 
+                                    onChange={(e) => {
+                                        const val = e.target.value;
+                                        const newVal = val ? val.split('-').reverse().join('/') : '';
+                                        setFiltroProducao(newVal);
+                                    }} 
+                                    style={{ width: '100%' }} 
+                                    title="Filtrar por Competência (Produção)"
+                                />
+                            </div>
 
-                  <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                    <div style={{ position: 'relative', minWidth: '180px' }}>
-                        <select 
-                            className="search-input" 
-                            value={filtroStatus} 
-                            onChange={(e) => { setCurrentPage(1); setFiltroStatus(e.target.value); }} 
-                            style={{width: '100%'}}
-                        >
-                            <option value="">Status: Todos</option>
-                            {listaStatus.map(status => <option key={status} value={status}>{status}</option>)}
-                        </select>
+                            {/* Filtro 2: Data Recebimento */}
+                            <div style={{ position: 'relative', minWidth: '160px' }}>
+                                <input 
+                                    type="date" 
+                                    className="search-input" 
+                                    value={filtroDataRecebimento} 
+                                    onChange={(e) => { setCurrentPage(1); setFiltroDataRecebimento(e.target.value); }} 
+                                    style={{ width: '100%', color: filtroDataRecebimento ? '#000' : '#666' }} 
+                                    title="Filtrar por Data de Recebimento"
+                                />
+                            </div>
+
+                        </div>
                     </div>
 
-                    <div style={{ position: 'relative', minWidth: '180px' }}>
-                        <select className="search-input" value={filtroResponsavel} onChange={(e) => { setCurrentPage(1); setFiltroResponsavel(e.target.value); }} style={{width: '100%'}}>
-                            <option value="">Resp: Todos</option>
-                            {listaResponsaveis.map(nome => <option key={nome} value={nome}>{nome}</option>)}
-                        </select>
+                    {/* Linha de Baixo: Filtros de Seleção */}
+                    <div style={{display: 'flex', gap: '10px', flexWrap: 'nowrap', width: '100%', marginTop: '15px'}}>
+                        <div style={{ flex: 1, position: 'relative' }}>
+                            <select className="search-input" value={filtroStatus} onChange={(e) => { setCurrentPage(1); setFiltroStatus(e.target.value); }} style={{width: '100%'}}>
+                                <option value="">Status: Todos</option>
+                                {listaStatus.map(status => <option key={status} value={status}>{status}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ flex: 1, position: 'relative' }}>
+                            <select className="search-input" value={filtroResponsavel} onChange={(e) => { setCurrentPage(1); setFiltroResponsavel(e.target.value); }} style={{width: '100%'}}>
+                                <option value="">Resp: Todos</option>
+                                {listaResponsaveis.map(nome => <option key={nome} value={nome}>{nome}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ flex: 1, position: 'relative' }}>
+                            <select className="search-input" value={filtroTratamento} onChange={(e) => { setCurrentPage(1); setFiltroTratamento(e.target.value); }} style={{width: '100%'}}>
+                                <option value="">Tratamento: Todos</option>
+                                {listaTratamentos.map(trat => <option key={trat} value={trat}>{trat}</option>)}
+                            </select>
+                        </div>
+                        <div style={{ flex: 1.5, position: 'relative' }}>
+                            <input type="text" placeholder="Busca por Nº Processo" className="search-input" value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ width: '100%', paddingLeft: '40px' }} />
+                            <Search size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
+                        </div>
                     </div>
-                    <div style={{ position: 'relative', minWidth: '200px' }}>
-                        <select className="search-input" value={filtroTratamento} onChange={(e) => { setCurrentPage(1); setFiltroTratamento(e.target.value); }} style={{width: '100%'}}>
-                            <option value="">Tratamento: Todos</option>
-                            {listaTratamentos.map(trat => <option key={trat} value={trat}>{trat}</option>)}
-                        </select>
                     </div>
-                    <div style={{ position: 'relative', minWidth: '250px' }}>
-                        <input type="text" placeholder="Busca por Nº Processo" className="search-input" value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ width: '100%', paddingLeft: '40px' }} />
-                        <Search size={18} style={{ position: 'absolute', left: '12px', top: '12px', color: '#999' }} />
-                    </div>
-                  </div>
-                </div>
 
                 {loading && processos.length === 0 ? (
                     <div style={{textAlign: 'center', padding: '40px'}}><Activity className="animate-spin" size={40} color="#ffcc00" style={{margin: '0 auto'}}/><p>Carregando...</p></div>
@@ -618,7 +733,10 @@ export default function App() {
                             )}
                             <div className="card-info" style={{ marginTop: 'auto', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', borderTop: '1px solid #f0f0f0', paddingTop: '10px' }}>
                               <div><small style={{display:'block', color:'#999'}}>Processo</small> <strong>{processo.numeroProcesso}</strong></div>
-                              <div><small style={{display:'block', color:'#999'}}>Valor</small> <strong>R$ {processo.valorCapa}</strong></div>
+                              <div>
+                                  <small style={{display:'block', color:'#999'}}>Valor</small> 
+                                  <strong>{processo.valorCapa && !isNaN(processo.valorCapa) ? formatCurrency(processo.valorCapa) : 'R$ 0,00'}</strong>
+                              </div>
                             </div>
                           </div>
                         )})}
@@ -634,13 +752,69 @@ export default function App() {
                 )}
             </>
         )}
-
+        
+        {/* Incluí apenas a parte relevante para economizar espaço, mas o arquivo acima deve substituir tudo se copiado na íntegra */}
+        
         {currentView === 'dashboard' && isAdmin && (
-            <div className="dashboard-container">
-                <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
-                    <BarChart3 className="text-blue-600" />
-                    Produtividade da Equipe
-                </h2>
+            <div className="dashboard-container" style={{ marginTop: '-25px' }}>
+                
+                {/* Header do Dashboard: Título na Esquerda + Barra de Meta na Direita */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px', flexWrap: 'wrap', gap: '15px' }}>
+                    <h2 className="text-2xl font-bold flex items-center gap-2" style={{ margin: 0 }}>
+                        <BarChart3 className="text-blue-600" />
+                        Produtividade da Equipe
+                    </h2>
+
+                    {/* COMPONENTE DA BARRA DE META DIÁRIA */}
+                    {(() => {
+                        const META_DIARIA = 2000000; // 2 milhões
+                        const porcentagem = Math.min((totalAnalisadoHoje / META_DIARIA) * 100, 100).toFixed(1);
+                        const bateuMeta = totalAnalisadoHoje >= META_DIARIA;
+                        const faltam = bateuMeta ? 0 : META_DIARIA - totalAnalisadoHoje;
+
+                        return (
+                            <div style={{ width: '320px', background: '#fff', padding: '12px 16px', borderRadius: '10px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.85rem', marginBottom: '8px', color: '#334155', fontWeight: 'bold' }}>
+                                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                        {/* Ícone de Alvo SVG */}
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+                                        </svg>
+                                        Meta Diária (2 Milhões)
+                                    </span>
+                                    <span style={{ color: bateuMeta ? '#16a34a' : '#2563eb' }}>{porcentagem}%</span>
+                                </div>
+                                
+                                {/* Linha cinza de fundo */}
+                                <div style={{ width: '100%', height: '10px', background: '#e2e8f0', borderRadius: '5px', overflow: 'hidden' }}>
+                                    {/* Linha colorida que preenche */}
+                                    <div style={{ 
+                                        width: `${porcentagem}%`, 
+                                        height: '100%', 
+                                        background: bateuMeta ? '#22c55e' : 'linear-gradient(90deg, #3b82f6, #60a5fa)', 
+                                        transition: 'width 1s ease-in-out' 
+                                    }}></div>
+                                </div>
+                                
+                                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginTop: '8px', color: '#64748b' }}>
+                                    <span>Hoje: <strong style={{color: '#333'}}>{formatCurrency(totalAnalisadoHoje)}</strong></span>
+                                    {!bateuMeta && <span>Faltam: {formatCurrency(faltam)}</span>}
+                                </div>
+                                
+                                {/* Mensagem de Parabéns! */}
+                                {bateuMeta && (
+                                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', color: '#15803d', fontSize: '0.8rem', fontWeight: 'bold', textAlign: 'center', marginTop: '6px', background: '#dcfce7', padding: '6px', borderRadius: '4px' }}>
+                                        {/* Ícone de Troféu SVG */}
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
+                                        </svg>
+                                        Parabéns! Meta atingida!
+                                    </div>
+                                )}
+                            </div>
+                        );
+                    })()}
+                </div>
 
                 <div className="filters-bar" style={{marginBottom: '20px', padding: '15px', borderRadius: '8px', background: '#f7f9fc'}}>
                     <div style={{ display: 'flex', gap: '15px', alignItems: 'flex-end' }}>
@@ -713,6 +887,7 @@ export default function App() {
 
       </main>
 
+      {/* MODALS CODE (Permanecem inalterados) */}
       {modalOpen && selectedProcesso && (
         <div className="modal-overlay">
           <div className="modal-content">
@@ -721,14 +896,12 @@ export default function App() {
               <button onClick={() => setModalOpen(false)} className="btn-close"><X size={24} /></button>
             </div>
             <div className="modal-body">
-
-              {/* --- BLOCO DE RESPONSÁVEL (ALTERADO) --- */}
-              <div style={{marginBottom: '20px', padding: '15px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd'}}>
+              {/* Conteúdo do Modal igual ao anterior... */}
+               <div style={{marginBottom: '20px', padding: '15px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd'}}>
                   <div style={{display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px', color: '#0369a1', fontWeight: 600}}>
                       <User size={18} /> Responsável pelo Processo
                   </div>
 
-                  {/* CENÁRIO 1: Processo SEM dono -> Botão para assumir (Todos veem) */}
                   {(!selectedProcesso.responsavel || selectedProcesso.responsavel === '') ? (
                       <button 
                           onClick={assumirProcesso}
@@ -750,7 +923,6 @@ export default function App() {
                       </div>
                   )}
 
-                  {/* CENÁRIO 3: Área Admin -> Permite TROCAR o responsável se necessário */}
                   {isAdmin && (
                       <div style={{marginTop: '15px', paddingTop: '10px', borderTop: '1px dashed #cbd5e1'}}>
                           <small style={{display: 'block', marginBottom: '5px', color: '#64748b'}}>Admin: Trocar responsável</small>
@@ -764,7 +936,6 @@ export default function App() {
                       </div>
                   )}
               </div>
-              {/* --- FIM DO BLOCO RESPONSÁVEL --- */}
 
               <div style={{marginBottom: '20px', padding: '10px', background: '#f9fafb', borderRadius: '8px', border: '1px solid #eee'}}>
                   <small style={{color: '#999', display: 'block', marginBottom: '4px'}}>PROCEDIMENTO</small>
@@ -775,48 +946,67 @@ export default function App() {
                   <h4 style={{ margin: '0 0 10px 0', fontSize: '0.9rem', color: '#b45309', display: 'flex', alignItems: 'center', gap: '5px' }}>
                       <DollarSign size={16}/> Valores do Fechamento
                   </h4>
+                  <button 
+                          onClick={salvarValoresFinanceiros}
+                          disabled={selectedProcesso.status === 'assinado e tramitado'}
+                          style={{ 
+                              backgroundColor: selectedProcesso.status === 'assinado e tramitado' ? '#d1d5db' : '#d97706', 
+                              color: 'white', 
+                              padding: '6px 12px', 
+                              fontSize: '0.8rem', 
+                              borderRadius: '6px', 
+                              border: 'none', 
+                              cursor: selectedProcesso.status === 'assinado e tramitado' ? 'not-allowed' : 'pointer', 
+                              display: 'flex', 
+                              alignItems: 'center', 
+                              gap: '6px',
+                              fontWeight: '600'
+                          }}
+                          title="Salvar apenas os valores preenchidos"
+                      >
+                          <Save size={14} /> Salvar Valores
+                      </button>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '10px' }}>
                       <div>
                           <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#666' }}>V. Capa *</label>
                           <input 
-                              type="number" 
+                              type="text" 
                               className="input-admin"
                               style={{ width: '100%', padding: '6px' }}
                               value={inputValorCapa}
-                              onChange={(e) => setInputValorCapa(e.target.value)}
+                              onChange={(e) => setInputValorCapa(aplicarMascaraMoeda(e.target.value))}
                               disabled={selectedProcesso.status === 'assinado e tramitado'}
-                              placeholder="0.00"
+                              placeholder="R$ 0,00"
                           />
                       </div>
                       <div>
                           <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#666' }}>V. Glosa</label>
                           <input 
-                              type="number" 
+                              type="text" 
                               className="input-admin"
                               style={{ width: '100%', padding: '6px' }}
                               value={inputValorGlosa}
-                              onChange={(e) => setInputValorGlosa(e.target.value)}
+                              onChange={(e) => setInputValorGlosa(aplicarMascaraMoeda(e.target.value))}
                               disabled={selectedProcesso.status === 'assinado e tramitado'}
-                              placeholder="0.00"
+                              placeholder="R$ 0,00"
                           />
                       </div>
                       <div>
                           <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#666' }}>V. Liberado *</label>
                           <input 
-                              type="number" 
+                              type="text" 
                               className="input-admin"
                               style={{ width: '100%', padding: '6px' }}
                               value={inputValorLiberado}
-                              onChange={(e) => setInputValorLiberado(e.target.value)}
+                              onChange={(e) => setInputValorLiberado(aplicarMascaraMoeda(e.target.value))}
                               disabled={selectedProcesso.status === 'assinado e tramitado'}
-                              placeholder="0.00"
+                              placeholder="R$ 0,00"
                           />
                       </div>
                   </div>
               </div>
 
               <div className="section-subtitle"><Activity size={16} /> Status</div>
-              {/* LISTA DINÂMICA DE STATUS NO MODAL */}
               <div className="status-grid">
                 {listaStatus.map(status => {
                   const isFinalizado = selectedProcesso.status === 'assinado e tramitado';
