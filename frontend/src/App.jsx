@@ -458,7 +458,7 @@ export default function App() {
     setProcessos(prev => prev.map(p => p.nup === selectedProcesso.nup ? processoAtualizado : p));
 
     try {
-        await axios.put(`${API_URL}/processos/${selectedProcesso.nup}/colaborador`, { 
+        await axios.put(`${API_URL}/api/processos/${selectedProcesso.nup}/colaborador`, {
             novoColaborador, 
             usuarioEmail: user.email 
         });
