@@ -578,7 +578,7 @@ export default function App() {
                 <span>Fatura<span style={{ color: '#ffcc00' }}>Maida</span></span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-                {isAdmin && (
+                {user && (
                     <div className="nav-buttons">
                         <button 
                             className={`nav-btn ${currentView === 'lista' ? 'active' : ''}`}
@@ -754,7 +754,7 @@ export default function App() {
         )}
         
         
-        {currentView === 'dashboard' && isAdmin && (
+        {currentView === 'dashboard' && user && (
             <div className="dashboard-container" style={{ marginTop: '-25px' }}>
                 
                 {/* Header do Dashboard: Título na Esquerda + Barra de Meta na Direita */}
