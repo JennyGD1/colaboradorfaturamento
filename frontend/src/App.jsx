@@ -492,7 +492,7 @@ export default function App() {
     }
 
     try {
-        await axios.put(`${API_URL}api/processos/${selectedProcesso.nup}/colaborador`, { 
+        await axios.put(`${API_URL}/api/processos/${selectedProcesso.nup}/colaborador`, {
             novoColaborador: nomeUsuario, 
             usuarioEmail: user.email 
         });
@@ -753,7 +753,6 @@ export default function App() {
             </>
         )}
         
-        {/* Incluí apenas a parte relevante para economizar espaço, mas o arquivo acima deve substituir tudo se copiado na íntegra */}
         
         {currentView === 'dashboard' && isAdmin && (
             <div className="dashboard-container" style={{ marginTop: '-25px' }}>
